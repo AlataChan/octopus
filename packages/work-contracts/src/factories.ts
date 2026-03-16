@@ -1,0 +1,47 @@
+import { randomUUID } from "node:crypto";
+
+import type { WorkGoal, WorkSession } from "./types.js";
+
+export interface CreateWorkGoalInput {
+  id?: string;
+  description: string;
+  constraints?: string[];
+  successCriteria?: string[];
+  createdAt?: Date;
+}
+
+export function createWorkGoal(input: CreateWorkGoalInput): WorkGoal {
+  return {
+    id: input.id ?? randomUUID(),
+    description: input.description,
+    constraints: input.constraints ?? [],
+    successCriteria: input.successCriteria ?? [],
+    createdAt: input.createdAt ?? new Date()
+  };
+}
+
+export interface CreateWorkSessionInput {
+  id?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export function createWorkSession(
+  goal: WorkGoal,
+  input: CreateWorkSessionInput = {}
+): WorkSession {
+  const createdAt = input.createdAt ?? new Date();
+
+  return {
+    id: input.id ?? randomUUID(),
+    goalId: goal.id,
+    state: "created",
+    items: [],
+    observations: [],
+    artifacts: [],
+    transitions: [],
+    createdAt,
+    updatedAt: input.updatedAt ?? createdAt
+  };
+}
+

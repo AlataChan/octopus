@@ -1,0 +1,26 @@
+{
+  "name": "@octopus/work-core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project work-core"
+  },
+  "dependencies": {
+    "@octopus/agent-runtime": "workspace:*",
+    "@octopus/exec-substrate": "workspace:*",
+    "@octopus/observability": "workspace:*",
+    "@octopus/security": "workspace:*",
+    "@octopus/state-store": "workspace:*",
+    "@octopus/work-contracts": "workspace:*"
+  }
+}

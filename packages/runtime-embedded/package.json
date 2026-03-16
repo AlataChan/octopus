@@ -1,0 +1,23 @@
+{
+  "name": "@octopus/runtime-embedded",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project runtime-embedded"
+  },
+  "dependencies": {
+    "@octopus/agent-runtime": "workspace:*",
+    "@octopus/observability": "workspace:*",
+    "@octopus/work-contracts": "workspace:*"
+  }
+}

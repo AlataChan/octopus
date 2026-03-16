@@ -1,0 +1,31 @@
+{
+  "name": "@octopus/surfaces-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "octopus": "dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --platform node --external commander --external chalk --external ora --external inquirer",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project surfaces-cli"
+  },
+  "dependencies": {
+    "@octopus/agent-runtime": "workspace:*",
+    "@octopus/exec-substrate": "workspace:*",
+    "@octopus/observability": "workspace:*",
+    "@octopus/runtime-embedded": "workspace:*",
+    "@octopus/security": "workspace:*",
+    "@octopus/state-store": "workspace:*",
+    "@octopus/work-contracts": "workspace:*",
+    "@octopus/work-core": "workspace:*"
+  }
+}

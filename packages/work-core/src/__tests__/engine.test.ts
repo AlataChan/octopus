@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AgentRuntime, RuntimeResponse } from "@octopus/agent-runtime";
+import type { AgentRuntime, ContextPayload, RuntimeResponse, SessionSnapshot } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
 import { EventBus } from "@octopus/observability";
 import type { SecurityPolicy } from "@octopus/security";
@@ -12,6 +12,7 @@ import type { StateStore } from "@octopus/state-store";
 import { createWorkGoal, createWorkSession, type Action, type ActionResult, type WorkGoal, type WorkSession } from "@octopus/work-contracts";
 
 import { WorkEngine } from "../engine.js";
+import { RecordingWorkspaceLock } from "./helpers.js";
 
 const tempDirs: string[] = [];
 
@@ -52,6 +53,7 @@ describe("WorkEngine", () => {
     expect(await readFile(join(workspaceRoot, "STATUS.md"), "utf8")).toContain("Known limitations: none");
     expect(await readFile(join(workspaceRoot, "PLAN.md"), "utf8")).toContain(goal.description);
     expect(await readFile(join(workspaceRoot, "TODO.md"), "utf8")).toContain("Goal complete");
+    expect(session.items[0]?.description).toBe(goal.description);
   });
 
   it("blocks when policy requires confirmation", async () => {
@@ -76,6 +78,67 @@ describe("WorkEngine", () => {
     expect(session.state).toBe("blocked");
     expect(runtime.ingestedResults).toHaveLength(0);
     expect(store.sessions.at(-1)?.state).toBe("blocked");
+  });
+
+  it("releases the workspace lock when policy blocks an action", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-work-core-"));
+    tempDirs.push(workspaceRoot);
+    const goal = createWorkGoal({ description: "Run git status" });
+    const runtime = new FakeRuntime([
+      {
+        kind: "action",
+        action: createAction("shell", { executable: "git", args: ["status"] })
+      }
+    ]);
+    const lock = new RecordingWorkspaceLock();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      blockingShellPolicy(),
+      { workspaceLock: lock }
+    );
+
+    const session = await engine.executeGoal(goal, { workspaceRoot });
+
+    expect(session.state).toBe("blocked");
+    expect(lock.acquired).toHaveLength(1);
+    expect(lock.released).toEqual([
+      {
+        workspaceRoot,
+        sessionId: session.id,
+        reason: "cancelled"
+      }
+    ]);
+  });
+
+  it("releases the workspace lock when the runtime blocks the session", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-work-core-"));
+    tempDirs.push(workspaceRoot);
+    const goal = createWorkGoal({ description: "Need clarification" });
+    const runtime = new FakeRuntime([{ kind: "blocked", reason: "Need clarification" }]);
+    const lock = new RecordingWorkspaceLock();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      allowAllPolicy(),
+      { workspaceLock: lock }
+    );
+
+    const session = await engine.executeGoal(goal, { workspaceRoot });
+
+    expect(session.state).toBe("blocked");
+    expect(lock.acquired).toHaveLength(1);
+    expect(lock.released).toEqual([
+      {
+        workspaceRoot,
+        sessionId: session.id,
+        reason: "cancelled"
+      }
+    ]);
   });
 
   it("does not record a completed transition when completion evidence is incomplete", async () => {
@@ -143,11 +206,39 @@ describe("WorkEngine", () => {
         .every((snapshot) => snapshot.items[0]?.state !== "done")
     ).toBe(true);
   });
+
+  it("loads recursive visible files while excluding dotfiles", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-work-core-"));
+    tempDirs.push(workspaceRoot);
+    await writeFile(join(workspaceRoot, "README.md"), "root", "utf8");
+    await mkdir(join(workspaceRoot, "nested", "deeper"), { recursive: true });
+    await writeFile(join(workspaceRoot, "nested", "deeper", "report.txt"), "report", "utf8");
+    await writeFile(join(workspaceRoot, ".env"), "secret", "utf8");
+    await mkdir(join(workspaceRoot, ".git"), { recursive: true });
+    await writeFile(join(workspaceRoot, ".git", "config"), "[core]", "utf8");
+
+    const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      allowAllPolicy()
+    );
+
+    await engine.executeGoal(createWorkGoal({ description: "Index visible files" }), { workspaceRoot });
+
+    expect(runtime.lastContextPayload?.visibleFiles).toEqual(
+      expect.arrayContaining(["README.md", "nested/deeper/report.txt", "PLAN.md", "TODO.md", "STATUS.md"])
+    );
+    expect(runtime.lastContextPayload?.visibleFiles).not.toEqual(expect.arrayContaining([".env", ".git/config"]));
+  });
 });
 
 class FakeRuntime implements AgentRuntime {
   readonly type = "embedded" as const;
   readonly ingestedResults: ActionResult[] = [];
+  lastContextPayload?: ContextPayload;
 
   constructor(private readonly responses: RuntimeResponse[]) {}
 
@@ -162,10 +253,11 @@ class FakeRuntime implements AgentRuntime {
   async cancelSession(): Promise<void> {}
 
   async snapshotSession(sessionId: string) {
-    return {
-      sessionId,
-      capturedAt: new Date()
-    };
+    return this.buildSnapshot(sessionId);
+  }
+
+  async hydrateSession(snapshot: SessionSnapshot): Promise<WorkSession> {
+    return snapshot.session;
   }
 
   async getMetadata() {
@@ -174,7 +266,9 @@ class FakeRuntime implements AgentRuntime {
     };
   }
 
-  async loadContext(): Promise<void> {}
+  async loadContext(_sessionId: string, context: ContextPayload): Promise<void> {
+    this.lastContextPayload = context;
+  }
 
   async requestNextAction(): Promise<RuntimeResponse> {
     const response = this.responses.shift();
@@ -191,6 +285,28 @@ class FakeRuntime implements AgentRuntime {
   signalCompletion(): void {}
 
   signalBlocked(): void {}
+
+  private buildSnapshot(sessionId: string): SessionSnapshot {
+    return {
+      schemaVersion: 2,
+      snapshotId: `snapshot-${sessionId}`,
+      capturedAt: new Date(),
+      session: {
+        id: sessionId,
+        goalId: "goal-1",
+        state: "blocked",
+        items: [],
+        observations: [],
+        artifacts: [],
+        transitions: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      runtimeContext: {
+        pendingResults: []
+      }
+    };
+  }
 }
 
 class FakeSubstrate implements ExecutionSubstratePort {
@@ -224,9 +340,20 @@ class MemoryStateStore implements StateStore {
     return this.sessions.map((session) => ({
       id: session.id,
       goalId: session.goalId,
+      ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
       state: session.state,
       updatedAt: session.updatedAt
     }));
+  }
+
+  async saveSnapshot(): Promise<void> {}
+
+  async loadSnapshot(): Promise<null> {
+    return null;
+  }
+
+  async listSnapshots() {
+    return [];
   }
 
   async saveArtifact(sessionId: string, artifact: WorkSession["artifacts"][number]): Promise<void> {

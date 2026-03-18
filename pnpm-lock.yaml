@@ -49,6 +49,27 @@ importers:
         specifier: workspace:*
         version: link:../work-contracts
 
+  packages/automation:
+    dependencies:
+      '@octopus/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@octopus/state-store':
+        specifier: workspace:*
+        version: link:../state-store
+      '@octopus/work-contracts':
+        specifier: workspace:*
+        version: link:../work-contracts
+      '@octopus/work-core':
+        specifier: workspace:*
+        version: link:../work-core
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      node-cron:
+        specifier: ^4.2.1
+        version: 4.2.1
+
   packages/exec-substrate:
     dependencies:
       '@octopus/observability':
@@ -84,6 +105,9 @@ importers:
 
   packages/state-store:
     dependencies:
+      '@octopus/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
       '@octopus/work-contracts':
         specifier: workspace:*
         version: link:../work-contracts
@@ -93,6 +117,9 @@ importers:
       '@octopus/agent-runtime':
         specifier: workspace:*
         version: link:../agent-runtime
+      '@octopus/automation':
+        specifier: workspace:*
+        version: link:../automation
       '@octopus/exec-substrate':
         specifier: workspace:*
         version: link:../exec-substrate
@@ -1059,6 +1086,10 @@ packages:
 
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
+
+  node-cron@4.2.1:
+    resolution: {integrity: sha512-lgimEHPE/QDgFlywTd8yTR61ptugX3Qer29efeyWw2rv259HtGBNn1vZVmp8lB9uo9wC0t/AT4iGqXxia+CJFg==}
+    engines: {node: '>=6.0.0'}
 
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
@@ -2202,6 +2233,8 @@ snapshots:
   nanoid@3.3.11: {}
 
   natural-compare@1.4.0: {}
+
+  node-cron@4.2.1: {}
 
   object-assign@4.1.1: {}
 

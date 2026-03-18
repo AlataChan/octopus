@@ -12,6 +12,7 @@ export default defineConfig({
       "@octopus/state-store": resolve("packages/state-store/src/index.ts"),
       "@octopus/security": resolve("packages/security/src/index.ts"),
       "@octopus/work-core": resolve("packages/work-core/src/index.ts"),
+      "@octopus/automation": resolve("packages/automation/src/index.ts"),
       "@octopus/runtime-embedded": resolve("packages/runtime-embedded/src/index.ts"),
       "@octopus/surfaces-cli": resolve("packages/surfaces-cli/src/index.ts")
     }
@@ -64,6 +65,12 @@ export default defineConfig({
         test: {
           name: "runtime-embedded",
           include: ["packages/runtime-embedded/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "automation",
+          include: ["packages/automation/src/**/*.test.ts"]
         }
       },
       {

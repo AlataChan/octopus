@@ -16,6 +16,7 @@
     "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project state-store"
   },
   "dependencies": {
+    "@octopus/agent-runtime": "workspace:*",
     "@octopus/work-contracts": "workspace:*"
   }
 }

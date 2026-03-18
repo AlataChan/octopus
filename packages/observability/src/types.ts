@@ -28,11 +28,38 @@ export type SubstrateEventType =
   | "command.executed"
   | "model.call";
 
+export type SnapshotEventType =
+  | "snapshot.captured"
+  | "snapshot.restored";
+
+export type WorkspaceLockEventType =
+  | "workspace.lock.acquired"
+  | "workspace.lock.released";
+
+export type VerificationPluginEventType = "verification.plugin.run";
+
+export type ArtifactManagementEventType = "runbook.generated";
+
+export type PolicyEventType = "profile.selected" | "policy.resolved";
+
+export type AutomationEventType =
+  | "automation.source.started"
+  | "automation.source.stopped"
+  | "automation.source.failed"
+  | "automation.triggered"
+  | "event.injected";
+
 export type WorkEventType =
   | SessionEventType
   | WorkItemEventType
   | CoreEventType
-  | SubstrateEventType;
+  | SubstrateEventType
+  | SnapshotEventType
+  | WorkspaceLockEventType
+  | VerificationPluginEventType
+  | ArtifactManagementEventType
+  | PolicyEventType
+  | AutomationEventType;
 
 export interface FileReadPayload {
   path: string;
@@ -138,6 +165,77 @@ export interface ArtifactEmittedPayload {
   description?: string;
 }
 
+export interface SnapshotCapturedPayload {
+  sessionId: string;
+  snapshotId: string;
+  capturedAt: Date;
+  schemaVersion: number;
+}
+
+export interface SnapshotRestoredPayload {
+  sessionId: string;
+  snapshotId: string;
+  restoredAt: Date;
+}
+
+export interface WorkspaceLockAcquiredPayload {
+  sessionId: string;
+  pid: number;
+}
+
+export interface WorkspaceLockReleasedPayload {
+  sessionId: string;
+  reason: "completed" | "failed" | "cancelled" | "stale-cleared";
+}
+
+export interface VerificationPluginRunPayload {
+  method: "test-runner" | "diff-check" | "schema-validator" | "output-compare" | "manual";
+  status: "pass" | "fail" | "partial" | "skipped";
+  score?: number;
+  durationMs: number;
+  evidenceCount: number;
+}
+
+export interface RunbookGeneratedPayload {
+  sessionId: string;
+  path: string;
+  stepCount: number;
+}
+
+export interface ProfileSelectedPayload {
+  profile: "safe-local" | "vibe" | "platform";
+  source: "builtin" | "flag" | "global" | "default-deny";
+}
+
+export interface PolicyResolvedPayload {
+  profile: "safe-local" | "vibe" | "platform";
+  source: "builtin" | "flag" | "global" | "default-deny";
+  policyFilePath?: string;
+  allowedExecutables?: string[];
+  allowNetwork?: boolean;
+  allowRemote?: boolean;
+  defaultDeny: boolean;
+}
+
+export interface AutomationSourceLifecyclePayload {
+  sourceType: "cron" | "watcher";
+  namedGoalId: string;
+  reason?: string;
+  error?: string;
+}
+
+export interface AutomationTriggeredPayload {
+  sourceType: "cron" | "watcher";
+  namedGoalId: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface EventInjectedPayload {
+  namedGoalId: string;
+  sessionId: string;
+  action: "skipped" | "resumed" | "created";
+}
+
 export interface PolicyMeta {
   profile?: string;
   category?: string;
@@ -167,6 +265,19 @@ export interface EventPayloadByType {
   "file.patched": FilePatchedPayload;
   "command.executed": CommandExecutedPayload;
   "model.call": ModelCallPayload;
+  "snapshot.captured": SnapshotCapturedPayload;
+  "snapshot.restored": SnapshotRestoredPayload;
+  "workspace.lock.acquired": WorkspaceLockAcquiredPayload;
+  "workspace.lock.released": WorkspaceLockReleasedPayload;
+  "verification.plugin.run": VerificationPluginRunPayload;
+  "runbook.generated": RunbookGeneratedPayload;
+  "profile.selected": ProfileSelectedPayload;
+  "policy.resolved": PolicyResolvedPayload;
+  "automation.source.started": AutomationSourceLifecyclePayload;
+  "automation.source.stopped": AutomationSourceLifecyclePayload;
+  "automation.source.failed": AutomationSourceLifecyclePayload;
+  "automation.triggered": AutomationTriggeredPayload;
+  "event.injected": EventInjectedPayload;
 }
 
 export type EventPayload = EventPayloadByType[WorkEventType];

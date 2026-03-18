@@ -1,31 +1,101 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 import { Command } from "commander";
 
+import {
+  AutomationDispatcher,
+  CronSource,
+  WatcherSource,
+  loadAutomationConfig,
+  type AutomationSource,
+  type CronSourceConfig,
+  type WatcherSourceConfig
+} from "@octopus/automation";
+import type { WorkEvent } from "@octopus/observability";
 import { TraceReader } from "@octopus/observability";
 import { HttpModelClient, type ModelClient } from "@octopus/runtime-embedded";
+import type { SecurityProfileName } from "@octopus/security";
 import { createWorkGoal } from "@octopus/work-contracts";
 
 import { createLocalWorkEngine, type LocalAppConfig } from "./factory.js";
 import { renderReplay } from "./renderer.js";
 
-export function buildCli(configFactory: () => LocalAppConfig): Command {
+interface CliDependencies {
+  createLocalWorkEngine: typeof createLocalWorkEngine;
+  loadAutomationConfig: typeof loadAutomationConfig;
+  createCronSource: (config: CronSourceConfig) => AutomationSource;
+  createWatcherSource: (config: WatcherSourceConfig) => AutomationSource;
+  waitForAutomationStop: () => Promise<void>;
+}
+
+const defaultDependencies: CliDependencies = {
+  createLocalWorkEngine,
+  loadAutomationConfig,
+  createCronSource: (config) => new CronSource(config),
+  createWatcherSource: (config) => new WatcherSource(config),
+  waitForAutomationStop
+};
+
+export function buildCli(
+  configFactory: () => LocalAppConfig,
+  dependencies: CliDependencies = defaultDependencies
+): Command {
   const program = new Command();
   program.name("octopus");
 
   program
     .command("run")
     .argument("<goal>")
-    .action(async (description: string) => {
-      const config = configFactory();
+    .option("--profile <profile>", "security profile: safe-local, vibe, or platform")
+    .option("--policy-file <path>", "platform policy file (implies --profile platform)")
+    .action(async (description: string, options: CommandOptions) => {
+      const config = applyCommandOverrides(configFactory(), options);
       assertValidConfig(config);
-      const app = createLocalWorkEngine(config);
+      const app = dependencies.createLocalWorkEngine(config);
       const session = await app.engine.executeGoal(createWorkGoal({ description }), {
         workspaceRoot: config.workspaceRoot
       });
+      await app.flushTraces();
+      process.stdout.write(`${session.state}\n`);
+    });
+
+  program
+    .command("restore")
+    .argument("<sessionId>")
+    .option("--at <timestamp>")
+    .option("--profile <profile>", "security profile: safe-local, vibe, or platform")
+    .option("--policy-file <path>", "platform policy file (implies --profile platform)")
+    .action(async (sessionId: string, options: RestoreOptions) => {
+      const config = applyCommandOverrides(configFactory(), options);
+      assertValidConfig(config);
+
+      const app = dependencies.createLocalWorkEngine(config);
+      const storedSession = await app.store.loadSession(sessionId);
+      if (!storedSession) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+
+      const snapshotId = options.at
+        ? selectSnapshotId(await app.store.listSnapshots(sessionId), options.at)
+        : undefined;
+      const goal = createWorkGoal({
+        id: storedSession.goalId,
+        namedGoalId: storedSession.namedGoalId,
+        description: `Resume session ${sessionId}`
+      });
+
+      const session = await app.engine.executeGoal(goal, {
+        workspaceRoot: config.workspaceRoot,
+        resumeFrom: {
+          sessionId,
+          ...(snapshotId ? { snapshotId } : {})
+        }
+      });
+      await app.flushTraces();
       process.stdout.write(`${session.state}\n`);
     });
 
@@ -42,7 +112,7 @@ export function buildCli(configFactory: () => LocalAppConfig): Command {
   program
     .command("sessions")
     .action(async () => {
-      const app = createLocalWorkEngine(configFactory());
+      const app = dependencies.createLocalWorkEngine(configFactory());
       const sessions = await app.store.listSessions();
       process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
     });
@@ -51,7 +121,7 @@ export function buildCli(configFactory: () => LocalAppConfig): Command {
     .command("status")
     .argument("[sessionId]")
     .action(async (sessionId?: string) => {
-      const app = createLocalWorkEngine(configFactory());
+      const app = dependencies.createLocalWorkEngine(configFactory());
       if (!sessionId) {
         const sessions = await app.store.listSessions();
         process.stdout.write(`${JSON.stringify(sessions.at(-1) ?? null, null, 2)}\n`);
@@ -60,6 +130,61 @@ export function buildCli(configFactory: () => LocalAppConfig): Command {
 
       const session = await app.store.loadSession(sessionId);
       process.stdout.write(`${JSON.stringify(session, null, 2)}\n`);
+    });
+
+  const automationCommand = program.command("automation");
+  automationCommand
+    .command("run")
+    .option("--profile <profile>", "security profile: vibe or platform")
+    .option("--policy-file <path>", "platform policy file (implies --profile platform)")
+    .action(async (options: CommandOptions) => {
+      const config = applyCommandOverrides(configFactory(), options);
+      assertAutomationProfile(config.profile ?? "safe-local");
+      assertValidConfig(config);
+
+      const app = dependencies.createLocalWorkEngine(config);
+      const automationConfig = dependencies.loadAutomationConfig(join(config.dataDir, "automation.json"));
+      const dispatcher = new AutomationDispatcher(
+        app.store,
+        app.engine,
+        automationConfig.goals,
+        app.eventBus,
+        { workspaceRoot: config.workspaceRoot }
+      );
+      const sources = automationConfig.sources.map((source) => createAutomationSource(source, dependencies));
+      let runError: unknown;
+
+      try {
+        for (const source of sources) {
+          emitAutomationLifecycleEvent(app.eventBus, "automation.source.started", source.namedGoalId, {
+            sourceType: source.sourceType,
+            namedGoalId: source.namedGoalId
+          });
+          await source.start(async (event) => {
+            await dispatcher.dispatch(event);
+          });
+        }
+
+        await dependencies.waitForAutomationStop();
+      } catch (error) {
+        runError = error;
+        const message = error instanceof Error ? error.message : "Automation runner failed.";
+        for (const source of sources) {
+          emitAutomationLifecycleEvent(app.eventBus, "automation.source.failed", source.namedGoalId, {
+            sourceType: source.sourceType,
+            namedGoalId: source.namedGoalId,
+            error: message
+          });
+        }
+      } finally {
+        const stopError = await stopAutomationSources(sources, app.eventBus);
+        await app.flushTraces();
+        runError = mergeAutomationErrors(runError, stopError);
+      }
+
+      if (runError) {
+        throw runError;
+      }
     });
 
   const configCommand = program
@@ -129,10 +254,33 @@ function describeConfig(config: LocalAppConfig) {
   };
 }
 
+function applyCommandOverrides(config: LocalAppConfig, options: CommandOptions): LocalAppConfig {
+  const profile = options.profile ? parseProfileOption(options.profile) : config.profile;
+  const policyFilePath = options.policyFile ?? config.policyFilePath;
+
+  if (policyFilePath && profile && profile !== "platform") {
+    throw new Error("--policy-file requires --profile platform or no --profile");
+  }
+
+  return {
+    ...config,
+    profile: policyFilePath ? "platform" : profile,
+    policyFilePath
+  };
+}
+
 function assertValidConfig(config: LocalAppConfig): void {
   const validationErrors = validateConfig(config);
   if (validationErrors.length > 0) {
     throw new Error(`Invalid Octopus configuration: ${validationErrors.join("; ")}`);
+  }
+}
+
+function assertAutomationProfile(profile: SecurityProfileName): void {
+  if (profile === "safe-local") {
+    throw new Error(
+      "Automation requires 'vibe' or 'platform' profile.\nCurrent profile: safe-local\nUse: octopus automation run --profile vibe"
+    );
   }
 }
 
@@ -148,9 +296,6 @@ function validateConfig(config: LocalAppConfig): string[] {
   if (!config.runtime.allowModelApiCall) {
     errors.push("runtime.allowModelApiCall must be true to run the embedded runtime");
   }
-  if ((config.profile ?? "safe-local") !== "safe-local") {
-    errors.push("profile must be safe-local in Phase 1");
-  }
 
   return errors;
 }
@@ -163,10 +308,19 @@ interface StoredConfig {
   temperature?: number;
   baseUrl?: string;
   allowModelApiCall?: boolean;
-  profile?: string;
+  profile?: SecurityProfileName;
 }
 
 type StoredConfigKey = keyof StoredConfig;
+
+interface CommandOptions {
+  profile?: string;
+  policyFile?: string;
+}
+
+interface RestoreOptions extends CommandOptions {
+  at?: string;
+}
 
 function readFileConfig(path: string): StoredConfig {
   if (!existsSync(path)) {
@@ -254,7 +408,7 @@ function parseConfigKeyValue(
     case "profile": {
       const profile = readProfile(rawValue);
       if (!profile) {
-        throw new Error("profile must be safe-local in Phase 1");
+        throw new Error("profile must be one of: safe-local, vibe, platform");
       }
       return { key, value: profile };
     }
@@ -274,8 +428,144 @@ function readProvider(value: unknown): LocalAppConfig["runtime"]["provider"] | u
   return value === "anthropic" || value === "openai-compatible" ? value : undefined;
 }
 
-function readProfile(value: unknown): string | undefined {
-  return value === "safe-local" ? value : undefined;
+function readProfile(value: unknown): SecurityProfileName | undefined {
+  return value === "safe-local" || value === "vibe" || value === "platform" ? value : undefined;
+}
+
+function parseProfileOption(value: string): SecurityProfileName {
+  const profile = readProfile(value);
+  if (!profile) {
+    throw new Error("profile must be one of: safe-local, vibe, platform");
+  }
+
+  return profile;
+}
+
+function selectSnapshotId(
+  snapshots: Array<{ snapshotId: string; capturedAt: Date }>,
+  at: string
+): string {
+  const target = new Date(at);
+  if (Number.isNaN(target.getTime())) {
+    throw new Error(`Invalid timestamp: ${at}`);
+  }
+
+  const selected = [...snapshots]
+    .sort((left, right) => right.capturedAt.getTime() - left.capturedAt.getTime())
+    .find((snapshot) => snapshot.capturedAt.getTime() <= target.getTime());
+
+  if (!selected) {
+    throw new Error(`No snapshot found at or before ${at}`);
+  }
+
+  return selected.snapshotId;
+}
+
+function createAutomationSource(
+  config: CronSourceConfig | WatcherSourceConfig,
+  dependencies: CliDependencies
+): AutomationSource {
+  switch (config.type) {
+    case "cron":
+      return dependencies.createCronSource(config);
+    case "watcher":
+      return dependencies.createWatcherSource(config);
+    default:
+      throw new Error(`Unsupported automation source type: ${String((config as { type?: unknown }).type)}`);
+  }
+}
+
+function emitAutomationLifecycleEvent<T extends "automation.source.started" | "automation.source.stopped" | "automation.source.failed">(
+  eventBus: { emit(event: WorkEvent): void },
+  type: T,
+  namedGoalId: string,
+  payload: Extract<WorkEvent, { type: T }>["payload"]
+): void {
+  eventBus.emit({
+    id: randomUUID(),
+    timestamp: new Date(),
+    sessionId: `automation:${namedGoalId}`,
+    goalId: `automation:${namedGoalId}`,
+    type,
+    sourceLayer: "automation",
+    payload
+  } as Extract<WorkEvent, { type: T }>);
+}
+
+async function stopAutomationSources(
+  sources: AutomationSource[],
+  eventBus: { emit(event: WorkEvent): void }
+): Promise<Error | undefined> {
+  const errors: Error[] = [];
+
+  for (const source of sources) {
+    try {
+      await source.stop();
+      emitAutomationLifecycleEvent(eventBus, "automation.source.stopped", source.namedGoalId, {
+        sourceType: source.sourceType,
+        namedGoalId: source.namedGoalId,
+        reason: "shutdown"
+      });
+    } catch (error) {
+      const stopError = error instanceof Error ? error : new Error("Automation source stop failed.");
+      errors.push(stopError);
+      emitAutomationLifecycleEvent(eventBus, "automation.source.failed", source.namedGoalId, {
+        sourceType: source.sourceType,
+        namedGoalId: source.namedGoalId,
+        error: stopError.message
+      });
+    }
+  }
+
+  if (errors.length === 0) {
+    return undefined;
+  }
+
+  return new Error(errors.map((error) => error.message).join("; "));
+}
+
+function mergeAutomationErrors(runError: unknown, stopError: Error | undefined): Error | undefined {
+  const normalizedRunError = toError(runError);
+
+  if (!normalizedRunError) {
+    return stopError;
+  }
+
+  if (!stopError) {
+    return normalizedRunError;
+  }
+
+  return new Error(`${normalizedRunError.message}; shutdown errors: ${stopError.message}`, {
+    cause: {
+      runError: normalizedRunError,
+      stopError
+    }
+  });
+}
+
+function toError(error: unknown): Error | undefined {
+  if (error === undefined || error === null) {
+    return undefined;
+  }
+
+  if (error instanceof Error) {
+    return error;
+  }
+
+  return new Error(String(error));
+}
+
+async function waitForAutomationStop(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const handleStop = () => {
+      process.off("SIGINT", handleStop);
+      process.off("SIGTERM", handleStop);
+      resolve();
+    };
+
+    process.on("SIGINT", handleStop);
+    process.on("SIGTERM", handleStop);
+  });
 }
 
 function readString(value: unknown): string | undefined {

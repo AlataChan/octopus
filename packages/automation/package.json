@@ -1,0 +1,26 @@
+{
+  "name": "@octopus/automation",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project automation"
+  },
+  "dependencies": {
+    "@octopus/observability": "workspace:*",
+    "@octopus/state-store": "workspace:*",
+    "@octopus/work-contracts": "workspace:*",
+    "@octopus/work-core": "workspace:*",
+    "chokidar": "^4.0.3",
+    "node-cron": "^4.2.1"
+  }
+}

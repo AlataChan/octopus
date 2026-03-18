@@ -28,9 +28,44 @@ describe("FileStateStore", () => {
       description: "Check persistence",
       state: "pending",
       observations: [],
-      actions: [],
-      verifications: [],
+      actions: [
+        {
+          id: "action-1",
+          type: "read",
+          params: { path: "README.md" },
+          createdAt: new Date("2026-03-18T00:01:00.000Z")
+        }
+      ],
+      verifications: [
+        {
+          id: "verification-1",
+          method: "action:read",
+          passed: true,
+          evidence: "README loaded",
+          createdAt: new Date("2026-03-18T00:02:00.000Z")
+        }
+      ],
       createdAt: new Date("2026-03-16T00:00:00.000Z")
+    });
+    session.observations.push({
+      id: "observation-1",
+      content: "Repo scanned",
+      source: "test",
+      createdAt: new Date("2026-03-18T00:03:00.000Z")
+    });
+    session.transitions.push({
+      from: "created",
+      to: "active",
+      reason: "Started work",
+      triggerEvent: "session.started",
+      timestamp: new Date("2026-03-18T00:04:00.000Z")
+    });
+    session.artifacts.push({
+      id: "artifact-1",
+      type: "document",
+      path: "STATUS.md",
+      description: "Status summary",
+      createdAt: new Date("2026-03-18T00:05:00.000Z")
     });
 
     await store.saveSession(session);
@@ -41,6 +76,12 @@ describe("FileStateStore", () => {
     expect(loaded?.items).toHaveLength(1);
     expect(loaded?.items[0]?.description).toBe("Check persistence");
     expect(loaded?.createdAt).toBeInstanceOf(Date);
+    expect(loaded?.items[0]?.actions[0]?.createdAt).toBeInstanceOf(Date);
+    expect(loaded?.items[0]?.verifications[0]?.createdAt).toBeInstanceOf(Date);
+    expect(loaded?.observations[0]?.createdAt).toBeInstanceOf(Date);
+    expect(loaded?.artifacts[0]?.createdAt).toBeInstanceOf(Date);
+    expect(loaded?.transitions[0]?.timestamp).toBeInstanceOf(Date);
+    expect("namedGoalId" in (loaded ?? {})).toBe(false);
   });
 
   it("lists saved sessions and round-trips artifacts", async () => {
@@ -48,7 +89,7 @@ describe("FileStateStore", () => {
     tempDirs.push(root);
 
     const store = new FileStateStore(root);
-    const goal = createWorkGoal({ description: "List sessions" });
+    const goal = createWorkGoal({ description: "List sessions", namedGoalId: "daily-report" });
     const session = createWorkSession(goal);
     const artifact = {
       id: "artifact-1",
@@ -58,6 +99,7 @@ describe("FileStateStore", () => {
       createdAt: new Date("2026-03-16T00:00:00.000Z")
     };
 
+    expect(session.namedGoalId).toBe("daily-report");
     await store.saveSession(session);
     await store.saveArtifact(session.id, artifact);
 
@@ -68,6 +110,7 @@ describe("FileStateStore", () => {
       {
         id: session.id,
         goalId: goal.id,
+        namedGoalId: "daily-report",
         state: "created",
         updatedAt: session.updatedAt
       }

@@ -19,6 +19,7 @@
     "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project surfaces-cli"
   },
   "dependencies": {
+    "@octopus/automation": "workspace:*",
     "@octopus/agent-runtime": "workspace:*",
     "@octopus/exec-substrate": "workspace:*",
     "@octopus/observability": "workspace:*",

@@ -8,6 +8,7 @@ export interface CreateWorkGoalInput {
   constraints?: string[];
   successCriteria?: string[];
   createdAt?: Date;
+  namedGoalId?: string;
 }
 
 export function createWorkGoal(input: CreateWorkGoalInput): WorkGoal {
@@ -16,7 +17,8 @@ export function createWorkGoal(input: CreateWorkGoalInput): WorkGoal {
     description: input.description,
     constraints: input.constraints ?? [],
     successCriteria: input.successCriteria ?? [],
-    createdAt: input.createdAt ?? new Date()
+    createdAt: input.createdAt ?? new Date(),
+    namedGoalId: input.namedGoalId
   };
 }
 
@@ -35,6 +37,7 @@ export function createWorkSession(
   return {
     id: input.id ?? randomUUID(),
     goalId: goal.id,
+    namedGoalId: goal.namedGoalId,
     state: "created",
     items: [],
     observations: [],
@@ -44,4 +47,3 @@ export function createWorkSession(
     updatedAt: input.updatedAt ?? createdAt
   };
 }
-

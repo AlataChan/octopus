@@ -1,9 +1,16 @@
 import type { Action, ActionResult, WorkGoal, WorkSession } from "@octopus/work-contracts";
 
+export interface RuntimeContext {
+  pendingResults: ActionResult[];
+  contextPayload?: ContextPayload;
+}
+
 export interface SessionSnapshot {
-  sessionId: string;
+  schemaVersion: 2;
+  snapshotId: string;
   capturedAt: Date;
-  summary?: string;
+  session: WorkSession;
+  runtimeContext: RuntimeContext;
 }
 
 export interface RuntimeMetadata {
@@ -37,6 +44,7 @@ export interface SessionPlane {
   resumeSession(sessionId: string): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
   snapshotSession(sessionId: string): Promise<SessionSnapshot>;
+  hydrateSession(snapshot: SessionSnapshot): Promise<WorkSession>;
   getMetadata(sessionId: string): Promise<RuntimeMetadata>;
 }
 
@@ -51,4 +59,3 @@ export interface ExecutionPlane {
 export interface AgentRuntime extends SessionPlane, ExecutionPlane {
   readonly type: "embedded" | "cli" | "acp" | "remote";
 }
-

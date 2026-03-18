@@ -28,6 +28,7 @@ export interface WorkGoal {
   constraints: string[];
   successCriteria: string[];
   createdAt: Date;
+  namedGoalId?: string;
 }
 
 export interface ActionResult {
@@ -56,6 +57,31 @@ export interface Verification {
   method: string;
   passed: boolean;
   evidence: string;
+  createdAt: Date;
+}
+
+export type VerificationStatus = "pass" | "fail" | "partial" | "skipped";
+
+export type VerificationMethod =
+  | "test-runner"
+  | "diff-check"
+  | "schema-validator"
+  | "output-compare"
+  | "manual";
+
+export interface EvidenceItem {
+  label: string;
+  value: string;
+  passed: boolean;
+}
+
+export interface VerificationResult {
+  id: string;
+  method: VerificationMethod;
+  status: VerificationStatus;
+  score?: number;
+  evidence: EvidenceItem[];
+  durationMs: number;
   createdAt: Date;
 }
 
@@ -97,6 +123,7 @@ export interface WorkItem {
 export interface WorkSession {
   id: string;
   goalId: string;
+  namedGoalId?: string;
   state: SessionState;
   items: WorkItem[];
   observations: Observation[];
@@ -109,7 +136,7 @@ export interface WorkSession {
 export interface SessionSummary {
   id: string;
   goalId: string;
+  namedGoalId?: string;
   state: SessionState;
   updatedAt: Date;
 }
-

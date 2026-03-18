@@ -55,4 +55,179 @@ describe("observability contract", () => {
 
     expect(() => assertTraceContract(events)).toThrow(/file\.patched/);
   });
+
+  it("types all phase 2 event payloads without an escape hatch", () => {
+    const events: WorkEvent[] = [
+      {
+        id: "evt-snapshot-captured",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "snapshot.captured",
+        sourceLayer: "runtime",
+        payload: {
+          sessionId: "session-1",
+          snapshotId: "snapshot-1",
+          capturedAt: new Date(),
+          schemaVersion: 2
+        }
+      },
+      {
+        id: "evt-snapshot-restored",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "snapshot.restored",
+        sourceLayer: "runtime",
+        payload: {
+          sessionId: "session-1",
+          snapshotId: "snapshot-1",
+          restoredAt: new Date()
+        }
+      },
+      {
+        id: "evt-lock-acquired",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "workspace.lock.acquired",
+        sourceLayer: "work-core",
+        payload: {
+          sessionId: "session-1",
+          pid: 1234
+        }
+      },
+      {
+        id: "evt-lock-released",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "workspace.lock.released",
+        sourceLayer: "work-core",
+        payload: {
+          sessionId: "session-1",
+          reason: "completed"
+        }
+      },
+      {
+        id: "evt-plugin",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "verification.plugin.run",
+        sourceLayer: "work-core",
+        payload: {
+          method: "test-runner",
+          status: "pass",
+          score: 1,
+          durationMs: 42,
+          evidenceCount: 2
+        }
+      },
+      {
+        id: "evt-runbook",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "runbook.generated",
+        sourceLayer: "work-core",
+        payload: {
+          sessionId: "session-1",
+          path: "RUNBOOK.md",
+          stepCount: 3
+        }
+      },
+      {
+        id: "evt-profile",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "profile.selected",
+        sourceLayer: "surface",
+        payload: {
+          profile: "vibe",
+          source: "builtin"
+        }
+      },
+      {
+        id: "evt-policy",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "policy.resolved",
+        sourceLayer: "surface",
+        payload: {
+          profile: "vibe",
+          source: "builtin",
+          defaultDeny: false
+        }
+      },
+      {
+        id: "evt-source-started",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "automation.source.started",
+        sourceLayer: "automation",
+        payload: {
+          sourceType: "cron",
+          namedGoalId: "daily-report"
+        }
+      },
+      {
+        id: "evt-source-stopped",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "automation.source.stopped",
+        sourceLayer: "automation",
+        payload: {
+          sourceType: "watcher",
+          namedGoalId: "normalize-incoming",
+          reason: "shutdown"
+        }
+      },
+      {
+        id: "evt-source-failed",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "automation.source.failed",
+        sourceLayer: "automation",
+        payload: {
+          sourceType: "cron",
+          namedGoalId: "daily-report",
+          error: "Unknown namedGoalId"
+        }
+      },
+      {
+        id: "evt-triggered",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "automation.triggered",
+        sourceLayer: "automation",
+        payload: {
+          sourceType: "cron",
+          namedGoalId: "daily-report",
+          payload: { trigger: "schedule" }
+        }
+      },
+      {
+        id: "evt-injected",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "event.injected",
+        sourceLayer: "automation",
+        payload: {
+          namedGoalId: "daily-report",
+          sessionId: "session-1",
+          action: "resumed"
+        }
+      }
+    ];
+
+    expect(events).toHaveLength(13);
+  });
 });

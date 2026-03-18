@@ -5,7 +5,8 @@ import { createWorkGoal, createWorkSession } from "../factories.js";
 describe("work-contract constructors", () => {
   it("creates a work goal with defaults", () => {
     const goal = createWorkGoal({
-      description: "Ship phase 1"
+      description: "Ship phase 1",
+      namedGoalId: "daily-report"
     });
 
     expect(goal.id).toBeTypeOf("string");
@@ -13,13 +14,15 @@ describe("work-contract constructors", () => {
     expect(goal.constraints).toEqual([]);
     expect(goal.successCriteria).toEqual([]);
     expect(goal.createdAt).toBeInstanceOf(Date);
+    expect(goal.namedGoalId).toBe("daily-report");
   });
 
   it("creates a fresh work session for a goal", () => {
-    const goal = createWorkGoal({ description: "Audit repo" });
+    const goal = createWorkGoal({ description: "Audit repo", namedGoalId: "audit-repo" });
     const session = createWorkSession(goal);
 
     expect(session.goalId).toBe(goal.id);
+    expect(session.namedGoalId).toBe("audit-repo");
     expect(session.state).toBe("created");
     expect(session.items).toEqual([]);
     expect(session.observations).toEqual([]);

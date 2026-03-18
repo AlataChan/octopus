@@ -4,6 +4,13 @@ Status: Living Document — update as each phase completes
 Source: `docs/WORK_AGENT_ARCHITECTURE.md`
 Last updated: 2026-03-16
 
+| Phase                              | Status          | Completed  |
+| ---------------------------------- | --------------- | ---------- |
+| Phase 1 — Core Foundation          | **COMPLETE**    | 2026-03-16 |
+| Phase 2 — Hardening & Automation   | **IN PLANNING** | —          |
+| Phase 3 — Networked & Remote       | Not started     | —          |
+| Phase 4 — Ecosystem & Compatibility| Not started     | —          |
+
 ---
 
 ## Product One-Line
@@ -115,24 +122,25 @@ The build order is a product statement:
 ### Detail Plan
 `.plans/phase1-work-core/task_plan.md` (v2, post Round 2 review)
 
-### Status
+### Status — COMPLETE ✓
+
 - [x] Architecture review (WORK_AGENT_ARCHITECTURE.md read)
 - [x] Implementation plan drafted (v1)
 - [x] Codex Plan Review Round 1 — 4 findings identified
 - [x] Plan updated to v2 (circular dep fix, spawn, modelApiCall, typed events)
 - [x] Round 2 self-review — all 5 verification items passed
-- [ ] Implementation: Step 0 — project scaffold
-- [ ] Implementation: Step 1 — work-contracts
-- [ ] Implementation: Step 2 — observability
-- [ ] Implementation: Step 3 — exec-substrate
-- [ ] Implementation: Step 4 — agent-runtime
-- [ ] Implementation: Step 5 — state-store
-- [ ] Implementation: Step 6 — security
-- [ ] Implementation: Step 7 — work-core
-- [ ] Implementation: Step 8 — runtime-embedded
-- [ ] Implementation: Step 9 — surfaces-cli
-- [ ] End-to-end smoke test
-- [ ] Code Review (pre-merge)
+- [x] Implementation: Step 0 — project scaffold
+- [x] Implementation: Step 1 — work-contracts
+- [x] Implementation: Step 2 — observability
+- [x] Implementation: Step 3 — exec-substrate
+- [x] Implementation: Step 4 — agent-runtime
+- [x] Implementation: Step 5 — state-store
+- [x] Implementation: Step 6 — security
+- [x] Implementation: Step 7 — work-core
+- [x] Implementation: Step 8 — runtime-embedded
+- [x] Implementation: Step 9 — surfaces-cli
+- [x] Code Review Round 1 — 7 issues found
+- [x] Code Review Round 2 — all 7 issues verified fixed
 
 ---
 
@@ -201,12 +209,16 @@ Components:
 | Updates to `security` | vibe + platform profiles |
 | Updates to `work-core` | runbook generation, verification hardening |
 
-### Key Questions to Answer Before Phase 2 Planning
+### Key Questions — ANSWERED (2026-03-16)
 
-1. What snapshot format survives schema evolution? (versioned JSON vs event sourcing replay?)
-2. What is the RUNBOOK.md template — derived from P1 real usage?
-3. What does cron "binding key" look like? (goal hash? named goal? explicit ID?)
-4. vibe profile confirmation UX — nothing shown, or passive log only?
+1. **Snapshot format**: Versioned JSON (schema version field). Event-sourcing replay is too fragile for restore; versioned JSON is durable and forward-compatible.
+2. **RUNBOOK.md template**: Goal description + ordered action list (executable + args + result) + verification results + known limitations. Derived mechanically from session JSONL trace on completion.
+3. **Cron binding key**: Explicit user-defined named goal ID (string slug, e.g. `"daily-report"`). Hashes break when goal description changes; named IDs are durable and predictable.
+4. **vibe profile UX**: Passive event log only — no confirmation prompts, all actions proceed automatically. Events still emitted to JSONL trace and CLI display for visibility.
+
+### Phase 2 Detail Plan
+
+`.plans/phase2-hardening/task_plan.md`
 
 ---
 

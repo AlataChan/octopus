@@ -79,11 +79,37 @@ export class EmbeddedRuntime implements AgentRuntime {
   }
 
   async snapshotSession(sessionId: string): Promise<SessionSnapshot> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+
     return {
-      sessionId,
+      schemaVersion: 2,
+      snapshotId: randomUUID(),
       capturedAt: new Date(),
-      summary: this.contexts.get(sessionId)?.workspaceSummary
+      session,
+      runtimeContext: {
+        pendingResults: this.results.get(sessionId) ?? [],
+        contextPayload: this.contexts.get(sessionId)
+      }
     };
+  }
+
+  async hydrateSession(snapshot: SessionSnapshot): Promise<WorkSession> {
+    if (snapshot.schemaVersion !== 2) {
+      throw new Error(`Unsupported snapshot schema version: ${snapshot.schemaVersion}`);
+    }
+
+    const { session, runtimeContext } = snapshot;
+    this.sessions.set(session.id, session);
+    this.results.set(session.id, runtimeContext.pendingResults);
+    if (runtimeContext.contextPayload) {
+      this.contexts.set(session.id, runtimeContext.contextPayload);
+    } else {
+      this.contexts.delete(session.id);
+    }
+    return session;
   }
 
   async getMetadata(): Promise<RuntimeMetadata> {

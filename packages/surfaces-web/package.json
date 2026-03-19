@@ -1,0 +1,20 @@
+{
+  "name": "@octopus/surfaces-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@octopus/observability": "workspace:*",
+    "@octopus/work-contracts": "workspace:*",
+    "preact": "^10.27.2"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.2",
+    "vite": "^7.2.0"
+  }
+}

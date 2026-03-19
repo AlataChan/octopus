@@ -24,6 +24,8 @@ describe("createPolicy", () => {
     expect(vibe.policy).toBeInstanceOf(VibePolicy);
     expect(safeLocal.resolution.source).toBe("builtin");
     expect(vibe.resolution.source).toBe("builtin");
+    expect(safeLocal.resolution.allowRemote).toBe(false);
+    expect(vibe.resolution.allowRemote).toBe(false);
   });
 
   it("creates a platform policy from the resolved policy file", async () => {
@@ -48,7 +50,32 @@ describe("createPolicy", () => {
     expect(result.resolution).toMatchObject({
       source: "global",
       defaultDeny: false,
-      allowedExecutables: ["git"]
+      allowedExecutables: ["git"],
+      allowRemote: false
+    });
+  });
+
+  it("surfaces allowRemote when the platform policy explicitly enables it", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-workspace-"));
+    const homeDir = await mkdtemp(join(tmpdir(), "octopus-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    await mkdir(join(homeDir, ".octopus"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".octopus", "policy.json"),
+      JSON.stringify({ schemaVersion: 1, allowRemote: true }),
+      "utf8"
+    );
+
+    const result = createPolicy("platform", {
+      workspaceRoot,
+      homeDir
+    });
+
+    expect(result.resolution).toMatchObject({
+      source: "global",
+      defaultDeny: false,
+      allowRemote: true
     });
   });
 });

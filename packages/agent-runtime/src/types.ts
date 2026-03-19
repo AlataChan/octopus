@@ -19,12 +19,20 @@ export interface RuntimeMetadata {
   profile?: string;
 }
 
+export interface McpToolDescription {
+  serverId: string;
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface ContextPayload {
   workspaceSummary?: string;
   visibleFiles?: string[];
   plan?: string;
   todo?: string;
   status?: string;
+  mcpTools?: McpToolDescription[];
 }
 
 export interface CompletionCandidate {

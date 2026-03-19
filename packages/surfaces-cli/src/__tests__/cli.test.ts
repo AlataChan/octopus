@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { McpToolDefinition } from "@octopus/adapter-mcp";
 import type { SnapshotSummary } from "@octopus/state-store";
 import type { WorkSession } from "@octopus/work-contracts";
 import type { LocalApp, LocalAppConfig } from "../factory.js";
@@ -53,18 +54,47 @@ const mocks = vi.hoisted(() => {
       flushTraces: vi.fn(async () => {})
     }) as unknown as LocalApp
   );
+  const createGatewayApp = vi.fn(() =>
+    ({
+      gatewayServer: {
+        start: vi.fn(async () => {}),
+        stop: vi.fn(async () => {})
+      },
+      flushTraces: vi.fn(async () => {})
+    }) as unknown as LocalApp
+  );
+  const createMcpSecurityClassifier = vi.fn(() => ({
+    classifyTool: vi.fn(() => ({ allowed: true, securityCategory: "network" as const }))
+  }));
+  const startAll = vi.fn(async () => {});
+  const stopAll = vi.fn(async () => {});
+  const getAllTools = vi.fn<() => McpToolDefinition[]>(() => []);
+  const createMcpServerManager = vi.fn(() =>
+    ({
+      startAll,
+      stopAll,
+      getAllTools
+    }) as never
+  );
 
   return {
     executeGoal,
     listSessions,
     loadSession,
     listSnapshots,
-    createLocalWorkEngine
+    createLocalWorkEngine,
+    createGatewayApp,
+    createMcpSecurityClassifier,
+    createMcpServerManager,
+    startAll,
+    stopAll,
+    getAllTools
   };
 });
 
 vi.mock("../factory.js", () => ({
-  createLocalWorkEngine: mocks.createLocalWorkEngine
+  createLocalWorkEngine: mocks.createLocalWorkEngine,
+  createGatewayApp: mocks.createGatewayApp
 }));
 
 import { buildCli } from "../cli.js";
@@ -77,6 +107,11 @@ afterEach(() => {
   mocks.loadSession.mockClear();
   mocks.listSnapshots.mockClear();
   mocks.createLocalWorkEngine.mockClear();
+  mocks.createMcpSecurityClassifier.mockClear();
+  mocks.createMcpServerManager.mockClear();
+  mocks.startAll.mockClear();
+  mocks.stopAll.mockClear();
+  mocks.getAllTools.mockClear();
 });
 
 afterEach(async () => {
@@ -549,5 +584,101 @@ describe("buildCli", () => {
     await expect(
       program.parseAsync(["config", "set", "profile", "invalid"], { from: "user" })
     ).rejects.toThrow(/safe-local, vibe, platform/i);
+  });
+
+  it("lists configured MCP servers without connecting them", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const program = buildCli(
+      () => ({
+        workspaceRoot: "/workspace",
+        dataDir: "/workspace/.octopus",
+        runtime: {
+          provider: "anthropic" as const,
+          model: "claude-sonnet-4-6",
+          apiKey: "test-key",
+          maxTokens: 1_024,
+          temperature: 0,
+          allowModelApiCall: true
+        },
+        mcp: {
+          servers: [
+            {
+              id: "filesystem",
+              transport: "stdio"
+            }
+          ]
+        },
+        modelClient: {
+          async completeTurn() {
+            throw new Error("not used in this test");
+          }
+        }
+      }),
+      {
+        createMcpSecurityClassifier: mocks.createMcpSecurityClassifier,
+        createMcpServerManager: mocks.createMcpServerManager
+      }
+    );
+
+    await program.parseAsync(["mcp", "list-servers"], { from: "user" });
+
+    expect(stdout).toHaveBeenCalledWith(
+      expect.stringContaining('"status": "not tested"')
+    );
+    expect(mocks.createMcpServerManager).not.toHaveBeenCalled();
+    stdout.mockRestore();
+  });
+
+  it("lists allowed MCP tools through the manager when configured", async () => {
+    mocks.getAllTools.mockReturnValueOnce([
+      {
+        serverId: "filesystem",
+        name: "read_file",
+        description: "Read a file",
+        inputSchema: { type: "object" },
+        policy: { allowed: true }
+      }
+    ]);
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const program = buildCli(
+      () => ({
+        workspaceRoot: "/workspace",
+        dataDir: "/workspace/.octopus",
+        runtime: {
+          provider: "anthropic" as const,
+          model: "claude-sonnet-4-6",
+          apiKey: "test-key",
+          maxTokens: 1_024,
+          temperature: 0,
+          allowModelApiCall: true
+        },
+        mcp: {
+          servers: [
+            {
+              id: "filesystem",
+              transport: "stdio"
+            }
+          ]
+        },
+        modelClient: {
+          async completeTurn() {
+            throw new Error("not used in this test");
+          }
+        }
+      }),
+      {
+        createMcpSecurityClassifier: mocks.createMcpSecurityClassifier,
+        createMcpServerManager: mocks.createMcpServerManager
+      }
+    );
+
+    await program.parseAsync(["mcp", "list-tools"], { from: "user" });
+
+    expect(mocks.startAll).toHaveBeenCalledTimes(1);
+    expect(stdout).toHaveBeenCalledWith(
+      expect.stringContaining('"name": "read_file"')
+    );
+    expect(mocks.stopAll).toHaveBeenCalledTimes(1);
+    stdout.mockRestore();
   });
 });

@@ -38,4 +38,16 @@ describe("parseRuntimeResponse", () => {
     }
     expect(response.action.createdAt).toBeInstanceOf(Date);
   });
+
+  it("accepts mcp-call actions", () => {
+    const response = parseRuntimeResponse(
+      '{"kind":"action","action":{"id":"action-1","type":"mcp-call","params":{"serverId":"filesystem","toolName":"read_file","arguments":{"path":"README.md"}},"createdAt":"2026-03-16T00:00:00.000Z"}}'
+    );
+
+    expect(response.kind).toBe("action");
+    if (response.kind !== "action") {
+      throw new Error("Expected action response.");
+    }
+    expect(response.action.type).toBe("mcp-call");
+  });
 });

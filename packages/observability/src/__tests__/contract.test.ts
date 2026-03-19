@@ -230,4 +230,253 @@ describe("observability contract", () => {
 
     expect(events).toHaveLength(13);
   });
+
+  it("types all phase 3 gateway and remote payloads without an escape hatch", () => {
+    const events: WorkEvent[] = [
+      {
+        id: "evt-gateway-started",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "gateway.started",
+        sourceLayer: "gateway",
+        payload: {
+          port: 4321,
+          host: "127.0.0.1",
+          tlsEnabled: false
+        }
+      },
+      {
+        id: "evt-gateway-stopped",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "gateway.stopped",
+        sourceLayer: "gateway",
+        payload: {
+          reason: "shutdown"
+        }
+      },
+      {
+        id: "evt-client-connected",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "gateway.client.connected",
+        sourceLayer: "gateway",
+        payload: {
+          clientId: "client-1",
+          authMethod: "session-token"
+        }
+      },
+      {
+        id: "evt-client-disconnected",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "gateway.client.disconnected",
+        sourceLayer: "gateway",
+        payload: {
+          clientId: "client-1",
+          reason: "socket-closed"
+        }
+      },
+      {
+        id: "evt-auth-failed",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "gateway.auth.failed",
+        sourceLayer: "gateway",
+        payload: {
+          clientId: "client-2",
+          method: "token",
+          reason: "expired"
+        }
+      },
+      {
+        id: "evt-remote-attached",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "remote.session.attached",
+        sourceLayer: "gateway",
+        payload: {
+          clientId: "client-1",
+          sessionId: "session-1",
+          mode: "control"
+        }
+      },
+      {
+        id: "evt-remote-detached",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "remote.session.detached",
+        sourceLayer: "gateway",
+        payload: {
+          clientId: "client-1",
+          sessionId: "session-1",
+          reason: "client-exit"
+        }
+      },
+      {
+        id: "evt-goal-submitted",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "remote.goal.submitted",
+        sourceLayer: "gateway",
+        payload: {
+          clientId: "client-1",
+          goalId: "goal-1",
+          description: "Generate report"
+        }
+      },
+      {
+        id: "evt-approval-requested",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "remote.approval.requested",
+        sourceLayer: "gateway",
+        payload: {
+          sessionId: "session-1",
+          promptId: "prompt-1",
+          description: "Run npm publish",
+          riskLevel: "high"
+        }
+      },
+      {
+        id: "evt-approval-resolved",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "remote.approval.resolved",
+        sourceLayer: "gateway",
+        payload: {
+          sessionId: "session-1",
+          promptId: "prompt-1",
+          action: "approve",
+          clientId: "client-1"
+        }
+      }
+    ];
+
+    expect(events).toHaveLength(10);
+  });
+
+  it("types all phase 4 MCP and chat payloads without an escape hatch", () => {
+    const events: WorkEvent[] = [
+      {
+        id: "evt-mcp-connected",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "mcp.server.connected",
+        sourceLayer: "mcp",
+        payload: {
+          serverId: "filesystem",
+          transport: "stdio",
+          toolCount: 4
+        }
+      },
+      {
+        id: "evt-mcp-disconnected",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "mcp.server.disconnected",
+        sourceLayer: "mcp",
+        payload: {
+          serverId: "filesystem",
+          reason: "shutdown"
+        }
+      },
+      {
+        id: "evt-mcp-called",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "mcp.tool.called",
+        sourceLayer: "mcp",
+        payload: {
+          serverId: "filesystem",
+          toolName: "read_file",
+          sessionId: "session-1"
+        }
+      },
+      {
+        id: "evt-mcp-completed",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "mcp.tool.completed",
+        sourceLayer: "mcp",
+        payload: {
+          serverId: "filesystem",
+          toolName: "read_file",
+          durationMs: 18,
+          success: true
+        }
+      },
+      {
+        id: "evt-mcp-failed",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "mcp.tool.failed",
+        sourceLayer: "mcp",
+        payload: {
+          serverId: "filesystem",
+          toolName: "read_file",
+          error: "permission denied"
+        }
+      },
+      {
+        id: "evt-chat-goal",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "chat.goal.received",
+        sourceLayer: "chat",
+        payload: {
+          platform: "slack",
+          channelId: "C123",
+          userId: "U123",
+          goalDescription: "clean up temp files"
+        }
+      },
+      {
+        id: "evt-chat-sent",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "chat.notification.sent",
+        sourceLayer: "chat",
+        payload: {
+          platform: "slack",
+          channelId: "C123",
+          sessionId: "session-1",
+          notificationType: "completion"
+        }
+      },
+      {
+        id: "evt-chat-failed",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "chat.notification.failed",
+        sourceLayer: "chat",
+        payload: {
+          platform: "slack",
+          channelId: "C123",
+          sessionId: "session-1",
+          error: "response_url expired"
+        }
+      }
+    ];
+
+    expect(events).toHaveLength(8);
+  });
 });

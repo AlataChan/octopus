@@ -10,6 +10,8 @@ export interface SubstrateContext {
 
 export type ToolResult = ActionResult;
 
+export type ActionHandler = (action: Action, context: SubstrateContext) => Promise<ToolResult>;
+
 export interface ExecutionSubstratePort {
   execute(action: Action, context: SubstrateContext): Promise<ToolResult>;
 }

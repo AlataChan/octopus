@@ -2,14 +2,14 @@
 
 Status: Living Document — update as each phase completes
 Source: `docs/WORK_AGENT_ARCHITECTURE.md`
-Last updated: 2026-03-16
+Last updated: 2026-03-19
 
 | Phase                              | Status          | Completed  |
 | ---------------------------------- | --------------- | ---------- |
 | Phase 1 — Core Foundation          | **COMPLETE**    | 2026-03-16 |
-| Phase 2 — Hardening & Automation   | **IN PLANNING** | —          |
-| Phase 3 — Networked & Remote       | Not started     | —          |
-| Phase 4 — Ecosystem & Compatibility| Not started     | —          |
+| Phase 2 — Hardening & Automation   | **COMPLETE**    | 2026-03-18 |
+| Phase 3 — Networked & Remote       | **COMPLETE**    | 2026-03-19 |
+| Phase 4 — Ecosystem & Compatibility| **COMPLETE**    | 2026-03-19 |
 
 ---
 
@@ -271,12 +271,16 @@ Components:
 | `runtime-acp` | ACP-backed runtime adapter |
 | `surfaces-web` | Browser/operator UI |
 
-### Key Questions to Answer Before Phase 3 Planning
+### Key Questions — ANSWERED (2026-03-18)
 
-1. What auth model does gateway use? (token, mTLS, session key?)
-2. ACP protocol version and stability — is it ready for production adapter?
-3. Browser UI tech stack (React? SvelteKit? plain HTML + htmx?)
-4. What does "remote attach" look like UX-wise — does user see the same output as local CLI?
+1. **Auth model**: API key (default) + opaque session token (upgrade for browser/WS). JWT deferred. Post-connect WS auth. TLS required for non-loopback.
+2. **ACP readiness**: Deferred to Phase 4. Phase 3 ships `runtime-remote` (transport-parity adapter) instead. ACP spec still evolving.
+3. **Browser UI tech stack**: Preact + Vite. No router, no state library, no UI kit. Minimal operator dashboard.
+4. **Remote attach UX**: CLI (`remote sessions/attach/run`) + Browser UI. Both thin surfaces over same gateway API. Ctrl+C = detach, explicit `/cancel` for remote cancel. Remote approval flow for safe-local prompts.
+
+### Phase 3 Detail Plan
+
+`.plans/phase3-networked/task_plan.md` (v4, post Round 4 review — score 9.1)
 
 ---
 
@@ -318,11 +322,26 @@ Components:
 | `surfaces-chat` | Chat surface thin wrappers |
 | External adapter packages | Per-integration (Jira, Linear, etc.) |
 
-### Key Questions to Answer Before Phase 4 Planning
+### Key Questions — ANSWERED (2026-03-19)
 
-1. Which external integrations have real user demand? (don't pre-build)
-2. MCP ecosystem maturity — what tools are worth supporting?
-3. Chat surfaces: are they goal-intake-only or do they also show execution output?
+1. **External integrations**: Gateway API sufficient for alpha. No adapter packages until 2+ real integrations share mapping code. Don't pre-build.
+2. **MCP scope**: Tool capabilities only. MCP resources/prompts excluded. Deny-by-default security. Two-tier auth: Work Core "network" gate + adapter config-based allow/deny.
+3. **Chat feedback**: Goal intake + terminal notification only. Chat never sends approvals, status updates, or execution logs. Hard boundary.
+
+### Phase 4 Detail Plan
+
+`.plans/phase4-ecosystem/task_plan.md` (v9, post 9 rounds of Codex review — score 9.2)
+
+### Status — COMPLETE ✓
+
+- [x] Design: 3 key questions brainstormed + Codex co-reviewed
+- [x] Plan: 9 review rounds with Codex (v1→v9, score 7.0→9.2)
+- [x] Implementation: Step 0 — Observability (8 new event types, Groups I + J)
+- [x] Implementation: Step 1 — Core updates (6 packages: ActionType, substrate extensions, ContextPayload, gateway scoped tokens, runtime MCP support, engine category mapping)
+- [x] Implementation: Step 2 — adapter-mcp (new package: MCP client, manager, schema adapter, security classifier, substrate handler)
+- [x] Implementation: Step 3 — surfaces-chat (new package: Slack adapter, gateway client, pending store, notification listener)
+- [x] Implementation: Step 4 — CLI + integration wiring (MCP subcommands, factory wiring)
+- [x] Final verification: 55 test files, 180 tests passed, type-check clean
 
 ---
 
@@ -357,13 +376,19 @@ Phase 2 (adds)
 
 Phase 3 (adds)
   + gateway
-  + runtime-acp
+  + runtime-remote
   + surfaces-web
 
 Phase 4 (adds)
   + adapter-mcp
   + surfaces-chat
-  + external adapter packages (per demand)
+  ~ work-contracts (mcp-call ActionType)
+  ~ exec-substrate (extension mechanism)
+  ~ agent-runtime (mcpTools in ContextPayload)
+  ~ runtime-embedded (MCP in prompt/parser)
+  ~ work-core (mcpTools in WorkEngineOptions, mcp-call→network)
+  ~ gateway (scoped token minting)
+  ~ surfaces-cli (mcp subcommands, factory wiring)
 ```
 
 ---
@@ -381,3 +406,8 @@ Phase 4 (adds)
 | 2026-03-16 | Automation deferred to P2 | Core loop must be stable before event injection wraps it |
 | 2026-03-16 | Gateway deferred to P3 | Local use must not require gateway; premature gateway shapes core |
 | 2026-03-16 | MCP deferred to P4 | MCP at the edge only; must not become the core's language |
+| 2026-03-19 | MCP as substrate extension (mcp-call ActionType) | One execution path. Work Core unchanged. Events emit naturally via substrate eventing. |
+| 2026-03-19 | Two-tier MCP security: Work Core "network" gate + adapter config allow/deny | Existing SecurityPolicy expects category-specific action params — can't reuse for MCP. Tier 1 handles profile gate, Tier 2 handles config gate. |
+| 2026-03-19 | Chat = intake + terminal notification only | Hard boundary prevents chat from becoming execution surface. Approvals/events stay in CLI/web/gateway. |
+| 2026-03-19 | Gateway API sufficient for external integrations | No adapter packages. POST /api/goals already exists. Promote to package only after 2+ real integrations share mapping code. |
+| 2026-03-19 | Scoped token minting in gateway | POST /auth/token accepts optional permissions body. Backward compatible. Enables least-privilege for chat and future integrations. |

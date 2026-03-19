@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { RuntimeResponse } from "@octopus/agent-runtime";
+import type { McpToolDescription, RuntimeResponse } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
 import type { EventBus, EventPayloadByType, WorkEvent, WorkEventType } from "@octopus/observability";
-import type { SecurityPolicy } from "@octopus/security";
+import type { ActionCategory, SecurityPolicy } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
 import {
   isCompletable,
@@ -33,11 +33,13 @@ export interface ExecuteGoalOptions {
 export interface WorkEngineOptions {
   verificationPlugins?: VerificationPlugin[];
   workspaceLock?: WorkspaceLock;
+  mcpTools?: McpToolDescription[];
 }
 
 export class WorkEngine {
   private readonly verificationPlugins: VerificationPlugin[];
   private readonly workspaceLock: WorkspaceLock;
+  private readonly mcpTools: McpToolDescription[];
 
   constructor(
     private readonly runtime: import("@octopus/agent-runtime").AgentRuntime,
@@ -49,6 +51,7 @@ export class WorkEngine {
   ) {
     this.verificationPlugins = options.verificationPlugins ?? [];
     this.workspaceLock = options.workspaceLock ?? new FileWorkspaceLock();
+    this.mcpTools = options.mcpTools ?? [];
   }
 
   async executeGoal(goal: WorkGoal, options: ExecuteGoalOptions = {}): Promise<WorkSession> {
@@ -107,7 +110,8 @@ export class WorkEngine {
       visibleFiles: workspaceRoot ? await listVisibleFiles(workspaceRoot) : [],
       plan: `Goal: ${goal.description}`,
       todo: "Execute next action",
-      status: `Session state: ${session.state}`
+      status: `Session state: ${session.state}`,
+      mcpTools: this.mcpTools.length > 0 ? this.mcpTools : undefined
     });
     await this.stateStore.saveSession(session);
     this.emit(session, "session.started", "work-core", { goalDescription: goal.description });
@@ -124,6 +128,10 @@ export class WorkEngine {
     }
 
     const session = await this.runtime.hydrateSession(snapshot);
+    await this.runtime.loadContext(session.id, {
+      ...(snapshot.runtimeContext.contextPayload ?? {}),
+      mcpTools: this.mcpTools.length > 0 ? this.mcpTools : undefined
+    });
     if (session.items.length === 0) {
       session.items.push(createDefaultWorkItem(session, goal));
     }
@@ -505,7 +513,7 @@ function transitionSession(session: WorkSession, state: SessionState, reason: st
   });
 }
 
-function mapActionTypeToCategory(type: Action["type"]): "read" | "patch" | "shell" | "modelApiCall" {
+function mapActionTypeToCategory(type: Action["type"]): ActionCategory {
   switch (type) {
     case "read":
     case "search":
@@ -516,6 +524,8 @@ function mapActionTypeToCategory(type: Action["type"]): "read" | "patch" | "shel
       return "shell";
     case "model-call":
       return "modelApiCall";
+    case "mcp-call":
+      return "network";
     default:
       return "read";
   }

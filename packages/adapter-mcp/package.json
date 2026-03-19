@@ -1,0 +1,25 @@
+{
+  "name": "@octopus/adapter-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project adapter-mcp"
+  },
+  "dependencies": {
+    "@octopus/agent-runtime": "workspace:*",
+    "@octopus/exec-substrate": "workspace:*",
+    "@octopus/observability": "workspace:*",
+    "@octopus/work-contracts": "workspace:*"
+  }
+}

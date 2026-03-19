@@ -24,6 +24,7 @@ export function createPolicy(
         resolution: {
           profile,
           source: "builtin",
+          allowRemote: false,
           defaultDeny: false
         }
       };
@@ -35,6 +36,7 @@ export function createPolicy(
         resolution: {
           profile,
           source: "builtin",
+          allowRemote: false,
           defaultDeny: false
         }
       };

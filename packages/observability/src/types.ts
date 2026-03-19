@@ -1,4 +1,12 @@
-export type SourceLayer = "work-core" | "runtime" | "substrate" | "automation" | "surface";
+export type SourceLayer =
+  | "work-core"
+  | "runtime"
+  | "substrate"
+  | "automation"
+  | "surface"
+  | "gateway"
+  | "mcp"
+  | "chat";
 
 export type SessionEventType =
   | "session.started"
@@ -49,6 +57,32 @@ export type AutomationEventType =
   | "automation.triggered"
   | "event.injected";
 
+export type GatewayEventType =
+  | "gateway.started"
+  | "gateway.stopped"
+  | "gateway.client.connected"
+  | "gateway.client.disconnected"
+  | "gateway.auth.failed";
+
+export type RemoteSessionEventType =
+  | "remote.session.attached"
+  | "remote.session.detached"
+  | "remote.goal.submitted"
+  | "remote.approval.requested"
+  | "remote.approval.resolved";
+
+export type McpEventType =
+  | "mcp.server.connected"
+  | "mcp.server.disconnected"
+  | "mcp.tool.called"
+  | "mcp.tool.completed"
+  | "mcp.tool.failed";
+
+export type ChatEventType =
+  | "chat.goal.received"
+  | "chat.notification.sent"
+  | "chat.notification.failed";
+
 export type WorkEventType =
   | SessionEventType
   | WorkItemEventType
@@ -59,7 +93,11 @@ export type WorkEventType =
   | VerificationPluginEventType
   | ArtifactManagementEventType
   | PolicyEventType
-  | AutomationEventType;
+  | AutomationEventType
+  | GatewayEventType
+  | RemoteSessionEventType
+  | McpEventType
+  | ChatEventType;
 
 export interface FileReadPayload {
   path: string;
@@ -236,6 +274,115 @@ export interface EventInjectedPayload {
   action: "skipped" | "resumed" | "created";
 }
 
+export interface GatewayStartedPayload {
+  port: number;
+  host: string;
+  tlsEnabled: boolean;
+}
+
+export interface GatewayStoppedPayload {
+  reason: string;
+}
+
+export interface GatewayClientConnectedPayload {
+  clientId: string;
+  authMethod: "api-key" | "session-token";
+}
+
+export interface GatewayClientDisconnectedPayload {
+  clientId: string;
+  reason: string;
+}
+
+export interface GatewayAuthFailedPayload {
+  clientId: string;
+  method: string;
+  reason: string;
+}
+
+export interface RemoteSessionAttachedPayload {
+  clientId: string;
+  sessionId: string;
+  mode: "observe" | "control";
+}
+
+export interface RemoteSessionDetachedPayload {
+  clientId: string;
+  sessionId: string;
+  reason: string;
+}
+
+export interface RemoteGoalSubmittedPayload {
+  clientId: string;
+  goalId: string;
+  description: string;
+}
+
+export interface RemoteApprovalRequestedPayload {
+  sessionId: string;
+  promptId: string;
+  description: string;
+  riskLevel: string;
+}
+
+export interface RemoteApprovalResolvedPayload {
+  sessionId: string;
+  promptId: string;
+  action: "approve" | "deny";
+  clientId: string;
+}
+
+export interface McpServerConnectedPayload {
+  serverId: string;
+  transport: "stdio" | "streamable-http" | "sse";
+  toolCount: number;
+}
+
+export interface McpServerDisconnectedPayload {
+  serverId: string;
+  reason: string;
+}
+
+export interface McpToolCalledPayload {
+  serverId: string;
+  toolName: string;
+  sessionId: string;
+}
+
+export interface McpToolCompletedPayload {
+  serverId: string;
+  toolName: string;
+  durationMs: number;
+  success: boolean;
+}
+
+export interface McpToolFailedPayload {
+  serverId: string;
+  toolName: string;
+  error: string;
+}
+
+export interface ChatGoalReceivedPayload {
+  platform: string;
+  channelId: string;
+  userId: string;
+  goalDescription: string;
+}
+
+export interface ChatNotificationSentPayload {
+  platform: string;
+  channelId: string;
+  sessionId: string;
+  notificationType: "ack" | "completion" | "failure";
+}
+
+export interface ChatNotificationFailedPayload {
+  platform: string;
+  channelId: string;
+  sessionId: string;
+  error: string;
+}
+
 export interface PolicyMeta {
   profile?: string;
   category?: string;
@@ -278,6 +425,24 @@ export interface EventPayloadByType {
   "automation.source.failed": AutomationSourceLifecyclePayload;
   "automation.triggered": AutomationTriggeredPayload;
   "event.injected": EventInjectedPayload;
+  "gateway.started": GatewayStartedPayload;
+  "gateway.stopped": GatewayStoppedPayload;
+  "gateway.client.connected": GatewayClientConnectedPayload;
+  "gateway.client.disconnected": GatewayClientDisconnectedPayload;
+  "gateway.auth.failed": GatewayAuthFailedPayload;
+  "remote.session.attached": RemoteSessionAttachedPayload;
+  "remote.session.detached": RemoteSessionDetachedPayload;
+  "remote.goal.submitted": RemoteGoalSubmittedPayload;
+  "remote.approval.requested": RemoteApprovalRequestedPayload;
+  "remote.approval.resolved": RemoteApprovalResolvedPayload;
+  "mcp.server.connected": McpServerConnectedPayload;
+  "mcp.server.disconnected": McpServerDisconnectedPayload;
+  "mcp.tool.called": McpToolCalledPayload;
+  "mcp.tool.completed": McpToolCompletedPayload;
+  "mcp.tool.failed": McpToolFailedPayload;
+  "chat.goal.received": ChatGoalReceivedPayload;
+  "chat.notification.sent": ChatNotificationSentPayload;
+  "chat.notification.failed": ChatNotificationFailedPayload;
 }
 
 export type EventPayload = EventPayloadByType[WorkEventType];

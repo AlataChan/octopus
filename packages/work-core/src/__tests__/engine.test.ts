@@ -233,6 +233,131 @@ describe("WorkEngine", () => {
     );
     expect(runtime.lastContextPayload?.visibleFiles).not.toEqual(expect.arrayContaining([".env", ".git/config"]));
   });
+
+  it("includes configured MCP tools in the initial runtime context", async () => {
+    const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      allowAllPolicy(),
+      {
+        mcpTools: [
+          {
+            serverId: "filesystem",
+            name: "read_file",
+            description: "Read file",
+            inputSchema: { type: "object" }
+          }
+        ]
+      }
+    );
+
+    await engine.executeGoal(createWorkGoal({ description: "Use MCP tools" }));
+
+    expect(runtime.lastContextPayload?.mcpTools).toEqual([
+      {
+        serverId: "filesystem",
+        name: "read_file",
+        description: "Read file",
+        inputSchema: { type: "object" }
+      }
+    ]);
+  });
+
+  it("refreshes restored runtime context with the current MCP tools", async () => {
+    const goal = createWorkGoal({ description: "Resume with refreshed MCP tools" });
+    const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+    const snapshotStore = new SnapshotStore({
+      schemaVersion: 2,
+      snapshotId: "snapshot-1",
+      capturedAt: new Date(),
+      session: createWorkSession(goal, { id: "session-restore-1" }),
+      runtimeContext: {
+        pendingResults: [],
+        contextPayload: {
+          workspaceSummary: "repo root",
+          mcpTools: [
+            {
+              serverId: "stale",
+              name: "old_tool",
+              description: "Old tool",
+              inputSchema: { type: "object" }
+            }
+          ]
+        }
+      }
+    });
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      snapshotStore,
+      new EventBus(),
+      allowAllPolicy(),
+      {
+        mcpTools: [
+          {
+            serverId: "filesystem",
+            name: "read_file",
+            description: "Read file",
+            inputSchema: { type: "object" }
+          }
+        ]
+      }
+    );
+
+    await engine.executeGoal(goal, {
+      resumeFrom: { sessionId: "session-restore-1" }
+    });
+
+    expect(runtime.lastContextPayload?.mcpTools).toEqual([
+      {
+        serverId: "filesystem",
+        name: "read_file",
+        description: "Read file",
+        inputSchema: { type: "object" }
+      }
+    ]);
+  });
+
+  it("treats mcp-call as a network action for policy evaluation", async () => {
+    const categories: string[] = [];
+    const policy: SecurityPolicy = {
+      evaluate(_action, category) {
+        categories.push(category);
+        return {
+          allowed: true,
+          requiresConfirmation: true,
+          riskLevel: "consequential",
+          reason: "Needs confirmation."
+        };
+      },
+      approveForSession() {}
+    };
+    const runtime = new FakeRuntime([
+      {
+        kind: "action",
+        action: createAction("mcp-call", {
+          serverId: "filesystem",
+          toolName: "read_file",
+          arguments: { path: "README.md" }
+        })
+      }
+    ]);
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      policy
+    );
+
+    const session = await engine.executeGoal(createWorkGoal({ description: "Check category mapping" }));
+
+    expect(session.state).toBe("blocked");
+    expect(categories).toEqual(["network"]);
+  });
 });
 
 class FakeRuntime implements AgentRuntime {
@@ -348,7 +473,7 @@ class MemoryStateStore implements StateStore {
 
   async saveSnapshot(): Promise<void> {}
 
-  async loadSnapshot(): Promise<null> {
+  async loadSnapshot(): Promise<SessionSnapshot | null> {
     return null;
   }
 
@@ -365,6 +490,16 @@ class MemoryStateStore implements StateStore {
 
   async loadArtifacts(sessionId: string) {
     return this.sessions.find((session) => session.id === sessionId)?.artifacts ?? [];
+  }
+}
+
+class SnapshotStore extends MemoryStateStore {
+  constructor(private readonly snapshot: SessionSnapshot) {
+    super();
+  }
+
+  override async loadSnapshot(): Promise<SessionSnapshot> {
+    return this.snapshot;
   }
 }
 

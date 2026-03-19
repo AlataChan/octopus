@@ -1,8 +1,25 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "paths": {
+      "@octopus/work-contracts": ["packages/work-contracts/src/index.ts"],
+      "@octopus/observability": ["packages/observability/src/index.ts"],
+      "@octopus/agent-runtime": ["packages/agent-runtime/src/index.ts"],
+      "@octopus/exec-substrate": ["packages/exec-substrate/src/index.ts"],
+      "@octopus/state-store": ["packages/state-store/src/index.ts"],
+      "@octopus/security": ["packages/security/src/index.ts"],
+      "@octopus/work-core": ["packages/work-core/src/index.ts"],
+      "@octopus/automation": ["packages/automation/src/index.ts"],
+      "@octopus/runtime-embedded": ["packages/runtime-embedded/src/index.ts"],
+      "@octopus/runtime-remote": ["packages/runtime-remote/src/index.ts"],
+      "@octopus/adapter-mcp": ["packages/adapter-mcp/src/index.ts"],
+      "@octopus/surfaces-chat": ["packages/surfaces-chat/src/index.ts"],
+      "@octopus/surfaces-cli": ["packages/surfaces-cli/src/index.ts"],
+      "@octopus/gateway": ["packages/gateway/src/index.ts"]
+    },
     "lib": ["ES2022"],
     "strict": true,
     "declaration": true,

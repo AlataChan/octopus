@@ -14,7 +14,11 @@ export default defineConfig({
       "@octopus/work-core": resolve("packages/work-core/src/index.ts"),
       "@octopus/automation": resolve("packages/automation/src/index.ts"),
       "@octopus/runtime-embedded": resolve("packages/runtime-embedded/src/index.ts"),
-      "@octopus/surfaces-cli": resolve("packages/surfaces-cli/src/index.ts")
+      "@octopus/runtime-remote": resolve("packages/runtime-remote/src/index.ts"),
+      "@octopus/adapter-mcp": resolve("packages/adapter-mcp/src/index.ts"),
+      "@octopus/surfaces-chat": resolve("packages/surfaces-chat/src/index.ts"),
+      "@octopus/surfaces-cli": resolve("packages/surfaces-cli/src/index.ts"),
+      "@octopus/gateway": resolve("packages/gateway/src/index.ts")
     }
   },
   test: {
@@ -75,8 +79,32 @@ export default defineConfig({
       },
       {
         test: {
+          name: "runtime-remote",
+          include: ["packages/runtime-remote/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "adapter-mcp",
+          include: ["packages/adapter-mcp/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "surfaces-chat",
+          include: ["packages/surfaces-chat/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
           name: "surfaces-cli",
           include: ["packages/surfaces-cli/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "gateway",
+          include: ["packages/gateway/**/*.test.ts"]
         }
       }
     ]

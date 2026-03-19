@@ -20,7 +20,7 @@ export type ArtifactType =
   | "runbook"
   | "other";
 
-export type ActionType = "read" | "patch" | "shell" | "search" | "model-call";
+export type ActionType = "read" | "patch" | "shell" | "search" | "model-call" | "mcp-call";
 
 export interface WorkGoal {
   id: string;

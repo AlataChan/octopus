@@ -82,4 +82,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const ACTION_TYPES = new Set<ActionType>(["read", "patch", "shell", "search", "model-call"]);
+const ACTION_TYPES = new Set<ActionType>(["read", "patch", "shell", "search", "model-call", "mcp-call"]);

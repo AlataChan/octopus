@@ -7,6 +7,12 @@ import { randomUUID } from "node:crypto";
 import { Command } from "commander";
 
 import {
+  DefaultMcpSecurityClassifier,
+  McpServerManager,
+  type McpSecurityClassifier,
+  type McpToolDefinition
+} from "@octopus/adapter-mcp";
+import {
   AutomationDispatcher,
   CronSource,
   WatcherSource,
@@ -15,35 +21,76 @@ import {
   type CronSourceConfig,
   type WatcherSourceConfig
 } from "@octopus/automation";
-import type { WorkEvent } from "@octopus/observability";
+import { EventBus, type WorkEvent } from "@octopus/observability";
 import { TraceReader } from "@octopus/observability";
 import { HttpModelClient, type ModelClient } from "@octopus/runtime-embedded";
 import type { SecurityProfileName } from "@octopus/security";
 import { createWorkGoal } from "@octopus/work-contracts";
 
-import { createLocalWorkEngine, type LocalAppConfig } from "./factory.js";
+import {
+  createGatewayApp,
+  createLocalWorkEngine,
+  type GatewayApp,
+  type GatewayConfigSection,
+  type LocalApp,
+  type LocalAppConfig
+} from "./factory.js";
+import { RemoteClient, type ApprovalRequestedMessage, type RemoteAttachHandle, type RemoteClientConfig } from "./remote-client.js";
 import { renderReplay } from "./renderer.js";
 
+interface RemoteClientLike {
+  listSessions(): Promise<unknown[]>;
+  getSession(sessionId: string): Promise<unknown>;
+  submitGoal(description: string): Promise<{ sessionId: string; goalId: string; state: string }>;
+  controlSession(sessionId: string, action: "pause" | "cancel" | "resume"): Promise<void>;
+  approveSession(sessionId: string, promptId: string, action: "approve" | "deny"): Promise<void>;
+  mintToken(): Promise<{ token: string; expiresAt: string }>;
+  attachToSession(
+    sessionId: string,
+    onEvent: (event: WorkEvent) => void,
+    onClose: (reason: string) => void,
+    onApprovalRequested?: (message: ApprovalRequestedMessage) => void
+  ): Promise<RemoteAttachHandle>;
+}
+
 interface CliDependencies {
-  createLocalWorkEngine: typeof createLocalWorkEngine;
+  createLocalWorkEngine: (
+    config: LocalAppConfig
+  ) => LocalApp | Promise<LocalApp>;
+  createGatewayApp: (
+    config: LocalAppConfig & { gateway: GatewayConfigSection }
+  ) => GatewayApp | Promise<GatewayApp>;
+  createRemoteClient: (config: RemoteClientConfig) => RemoteClientLike;
   loadAutomationConfig: typeof loadAutomationConfig;
   createCronSource: (config: CronSourceConfig) => AutomationSource;
   createWatcherSource: (config: WatcherSourceConfig) => AutomationSource;
   waitForAutomationStop: () => Promise<void>;
+  waitForGatewayStop: () => Promise<void>;
+  createMcpSecurityClassifier: () => McpSecurityClassifier;
+  createMcpServerManager: (classifier: McpSecurityClassifier) => McpServerManager;
 }
 
 const defaultDependencies: CliDependencies = {
   createLocalWorkEngine,
+  createGatewayApp,
+  createRemoteClient: (config) => new RemoteClient(config),
   loadAutomationConfig,
   createCronSource: (config) => new CronSource(config),
   createWatcherSource: (config) => new WatcherSource(config),
-  waitForAutomationStop
+  waitForAutomationStop,
+  waitForGatewayStop,
+  createMcpSecurityClassifier: () => new DefaultMcpSecurityClassifier(),
+  createMcpServerManager: (classifier) => new McpServerManager(classifier)
 };
 
 export function buildCli(
   configFactory: () => LocalAppConfig,
-  dependencies: CliDependencies = defaultDependencies
+  dependencies: Partial<CliDependencies> = {}
 ): Command {
+  const resolvedDependencies: CliDependencies = {
+    ...defaultDependencies,
+    ...dependencies
+  };
   const program = new Command();
   program.name("octopus");
 
@@ -55,7 +102,7 @@ export function buildCli(
     .action(async (description: string, options: CommandOptions) => {
       const config = applyCommandOverrides(configFactory(), options);
       assertValidConfig(config);
-      const app = dependencies.createLocalWorkEngine(config);
+      const app = await resolvedDependencies.createLocalWorkEngine(config);
       const session = await app.engine.executeGoal(createWorkGoal({ description }), {
         workspaceRoot: config.workspaceRoot
       });
@@ -73,7 +120,7 @@ export function buildCli(
       const config = applyCommandOverrides(configFactory(), options);
       assertValidConfig(config);
 
-      const app = dependencies.createLocalWorkEngine(config);
+      const app = await resolvedDependencies.createLocalWorkEngine(config);
       const storedSession = await app.store.loadSession(sessionId);
       if (!storedSession) {
         throw new Error(`Unknown session: ${sessionId}`);
@@ -112,7 +159,7 @@ export function buildCli(
   program
     .command("sessions")
     .action(async () => {
-      const app = dependencies.createLocalWorkEngine(configFactory());
+      const app = await resolvedDependencies.createLocalWorkEngine(configFactory());
       const sessions = await app.store.listSessions();
       process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
     });
@@ -121,7 +168,7 @@ export function buildCli(
     .command("status")
     .argument("[sessionId]")
     .action(async (sessionId?: string) => {
-      const app = dependencies.createLocalWorkEngine(configFactory());
+      const app = await resolvedDependencies.createLocalWorkEngine(configFactory());
       if (!sessionId) {
         const sessions = await app.store.listSessions();
         process.stdout.write(`${JSON.stringify(sessions.at(-1) ?? null, null, 2)}\n`);
@@ -130,6 +177,76 @@ export function buildCli(
 
       const session = await app.store.loadSession(sessionId);
       process.stdout.write(`${JSON.stringify(session, null, 2)}\n`);
+    });
+
+  const remoteCommand = program.command("remote");
+  remoteCommand
+    .command("sessions")
+    .argument("<url>")
+    .option("--api-key <apiKey>", "gateway API key")
+    .action(async (url: string, options: RemoteCommandOptions) => {
+      const config = configFactory();
+      const remoteClient = resolvedDependencies.createRemoteClient({
+        gatewayUrl: url,
+        apiKey: resolveRemoteApiKey(config, options)
+      });
+      const sessions = await remoteClient.listSessions();
+      process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
+    });
+
+  remoteCommand
+    .command("attach")
+    .argument("<url>")
+    .argument("<sessionId>")
+    .option("--api-key <apiKey>", "gateway API key")
+    .action(async (url: string, sessionId: string, options: RemoteCommandOptions) => {
+      const config = configFactory();
+      const remoteClient = resolvedDependencies.createRemoteClient({
+        gatewayUrl: url,
+        apiKey: resolveRemoteApiKey(config, options)
+      });
+      await attachRemoteSession(remoteClient, sessionId);
+    });
+
+  remoteCommand
+    .command("run")
+    .argument("<url>")
+    .argument("<goal>")
+    .option("--api-key <apiKey>", "gateway API key")
+    .action(async (url: string, description: string, options: RemoteCommandOptions) => {
+      const config = configFactory();
+      const remoteClient = resolvedDependencies.createRemoteClient({
+        gatewayUrl: url,
+        apiKey: resolveRemoteApiKey(config, options)
+      });
+      const { sessionId } = await remoteClient.submitGoal(description);
+      await attachRemoteSession(remoteClient, sessionId);
+    });
+
+  const gatewayCommand = program.command("gateway");
+  gatewayCommand
+    .command("run")
+    .option("--profile <profile>", "security profile: vibe or platform")
+    .option("--policy-file <path>", "platform policy file (implies --profile platform)")
+    .action(async (options: CommandOptions) => {
+      const config = applyCommandOverrides(configFactory(), options);
+      assertGatewayProfile(config.profile ?? "safe-local");
+      assertGatewayConfig(config);
+
+      const app = await resolvedDependencies.createGatewayApp({
+        ...config,
+        gateway: config.gateway!
+      });
+
+      await app.gatewayServer.start();
+      process.stdout.write(`gateway listening on ${config.gateway!.host}:${config.gateway!.port}\n`);
+
+      try {
+        await resolvedDependencies.waitForGatewayStop();
+      } finally {
+        await app.gatewayServer.stop();
+        await app.flushTraces();
+      }
     });
 
   const automationCommand = program.command("automation");
@@ -142,8 +259,8 @@ export function buildCli(
       assertAutomationProfile(config.profile ?? "safe-local");
       assertValidConfig(config);
 
-      const app = dependencies.createLocalWorkEngine(config);
-      const automationConfig = dependencies.loadAutomationConfig(join(config.dataDir, "automation.json"));
+      const app = await resolvedDependencies.createLocalWorkEngine(config);
+      const automationConfig = resolvedDependencies.loadAutomationConfig(join(config.dataDir, "automation.json"));
       const dispatcher = new AutomationDispatcher(
         app.store,
         app.engine,
@@ -151,7 +268,7 @@ export function buildCli(
         app.eventBus,
         { workspaceRoot: config.workspaceRoot }
       );
-      const sources = automationConfig.sources.map((source) => createAutomationSource(source, dependencies));
+      const sources = automationConfig.sources.map((source) => createAutomationSource(source, resolvedDependencies));
       let runError: unknown;
 
       try {
@@ -165,7 +282,7 @@ export function buildCli(
           });
         }
 
-        await dependencies.waitForAutomationStop();
+        await resolvedDependencies.waitForAutomationStop();
       } catch (error) {
         runError = error;
         const message = error instanceof Error ? error.message : "Automation runner failed.";
@@ -184,6 +301,76 @@ export function buildCli(
 
       if (runError) {
         throw runError;
+      }
+    });
+
+  const mcpCommand = program.command("mcp");
+  mcpCommand
+    .command("list-servers")
+    .action(async () => {
+      const config = configFactory();
+      const servers = config.mcp?.servers ?? [];
+      process.stdout.write(
+        `${JSON.stringify(
+          servers.map((server) => ({
+            id: server.id,
+            transport: server.transport,
+            status: "not tested"
+          })),
+          null,
+          2
+        )}\n`
+      );
+    });
+
+  mcpCommand
+    .command("list-tools")
+    .action(async () => {
+      const config = configFactory();
+      const manager = await connectConfiguredMcpServers(config, resolvedDependencies);
+      if (!manager) {
+        process.stdout.write("[]\n");
+        return;
+      }
+
+      try {
+        process.stdout.write(`${JSON.stringify(formatMcpTools(manager.getAllTools()), null, 2)}\n`);
+      } finally {
+        await manager.stopAll();
+      }
+    });
+
+  mcpCommand
+    .command("test")
+    .argument("<serverId>")
+    .action(async (serverId: string) => {
+      const config = configFactory();
+      const server = config.mcp?.servers.find((entry) => entry.id === serverId);
+      if (!server) {
+        throw new Error(`Unknown MCP server: ${serverId}`);
+      }
+
+      const classifier = resolvedDependencies.createMcpSecurityClassifier();
+      const manager = resolvedDependencies.createMcpServerManager(classifier);
+      const eventBus = new EventBus();
+      await manager.startAll([server], eventBus);
+
+      try {
+        const tools = manager.getAllTools().filter((tool) => tool.serverId === serverId);
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              serverId,
+              transport: server.transport,
+              status: "connected",
+              toolCount: tools.length
+            },
+            null,
+            2
+          )}\n`
+        );
+      } finally {
+        await manager.stopAll();
       }
     });
 
@@ -232,6 +419,17 @@ function createDefaultConfig(workspaceRoot: string, modelClient: ModelClient): L
       allowModelApiCall: readBoolean(process.env.OCTOPUS_ALLOW_MODEL_API_CALL) ?? fileConfig.allowModelApiCall ?? false
     },
     profile: readProfile(process.env.OCTOPUS_PROFILE) ?? fileConfig.profile ?? "safe-local",
+    gateway: {
+      port: fileConfig.gateway?.port ?? 4_321,
+      host: fileConfig.gateway?.host ?? "127.0.0.1",
+      apiKey: fileConfig.gateway?.apiKey ?? "",
+      ...(fileConfig.gateway?.tls ? { tls: fileConfig.gateway.tls } : {}),
+      ...(fileConfig.gateway?.trustProxyCIDRs ? { trustProxyCIDRs: fileConfig.gateway.trustProxyCIDRs } : {}),
+      ...(fileConfig.gateway?.enableRuntimeProxy === undefined
+        ? {}
+        : { enableRuntimeProxy: fileConfig.gateway.enableRuntimeProxy })
+    },
+    ...(fileConfig.mcp ? { mcp: fileConfig.mcp } : {}),
     modelClient
   };
 }
@@ -248,6 +446,13 @@ function describeConfig(config: LocalAppConfig) {
       temperature: config.runtime.temperature,
       allowModelApiCall: config.runtime.allowModelApiCall,
       apiKeyConfigured: config.runtime.apiKey.trim().length > 0
+    },
+    gateway: {
+      port: config.gateway?.port ?? 4_321,
+      host: config.gateway?.host ?? "127.0.0.1",
+      apiKeyConfigured: Boolean(config.gateway?.apiKey?.trim()),
+      trustProxyCIDRs: config.gateway?.trustProxyCIDRs ?? [],
+      enableRuntimeProxy: config.gateway?.enableRuntimeProxy ?? false
     },
     profile: config.profile ?? "safe-local",
     validationErrors: validateConfig(config)
@@ -309,9 +514,23 @@ interface StoredConfig {
   baseUrl?: string;
   allowModelApiCall?: boolean;
   profile?: SecurityProfileName;
+  gateway?: StoredGatewayConfig;
+  mcp?: {
+    servers: import("@octopus/adapter-mcp").McpServerConfig[];
+  };
 }
 
-type StoredConfigKey = keyof StoredConfig;
+interface StoredGatewayConfig {
+  port?: number;
+  host?: string;
+  apiKey?: string;
+  tls?: {
+    cert: string;
+    key: string;
+  };
+  trustProxyCIDRs?: string[];
+  enableRuntimeProxy?: boolean;
+}
 
 interface CommandOptions {
   profile?: string;
@@ -320,6 +539,10 @@ interface CommandOptions {
 
 interface RestoreOptions extends CommandOptions {
   at?: string;
+}
+
+interface RemoteCommandOptions {
+  apiKey?: string;
 }
 
 function readFileConfig(path: string): StoredConfig {
@@ -337,7 +560,9 @@ function readFileConfig(path: string): StoredConfig {
       temperature: typeof parsed.temperature === "number" ? parsed.temperature : undefined,
       baseUrl: readString(parsed.baseUrl),
       allowModelApiCall: typeof parsed.allowModelApiCall === "boolean" ? parsed.allowModelApiCall : undefined,
-      profile: readProfile(parsed.profile)
+      profile: readProfile(parsed.profile),
+      gateway: readGatewayConfig(parsed.gateway),
+      mcp: readMcpConfig(parsed.mcp)
     };
   } catch {
     return {};
@@ -348,13 +573,10 @@ async function setConfigValue(
   configPath: string,
   key: string,
   rawValue: string
-): Promise<{ key: StoredConfigKey; storedConfig: StoredConfig; displayValue: string | number | boolean }> {
+): Promise<{ key: string; storedConfig: StoredConfig; displayValue: string | number | boolean | string[] }> {
   const parsed = parseConfigKeyValue(key, rawValue);
   const current = readFileConfig(configPath);
-  const next: StoredConfig = {
-    ...current,
-    [parsed.key]: parsed.value
-  };
+  const next = applyStoredConfigValue(current, parsed.key, parsed.value);
 
   await mkdir(dirname(configPath), { recursive: true });
   await writeFile(configPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
@@ -362,14 +584,14 @@ async function setConfigValue(
   return {
     key: parsed.key,
     storedConfig: next,
-    displayValue: parsed.key === "apiKey" ? "[redacted]" : parsed.value
+    displayValue: parsed.key === "apiKey" || parsed.key === "gateway.apiKey" ? "[redacted]" : parsed.value
   };
 }
 
 function parseConfigKeyValue(
   key: string,
   rawValue: string
-): { key: StoredConfigKey; value: string | number | boolean } {
+): { key: string; value: string | number | boolean | string[] } {
   switch (key) {
     case "apiKey":
       return { key, value: rawValue };
@@ -412,16 +634,354 @@ function parseConfigKeyValue(
       }
       return { key, value: profile };
     }
+    case "gateway.apiKey":
+      return { key, value: rawValue };
+    case "gateway.host":
+      return { key, value: requireNonEmptyString(rawValue, "gateway.host") };
+    case "gateway.port": {
+      const value = readNumber(rawValue);
+      if (value === undefined || !Number.isInteger(value) || value <= 0) {
+        throw new Error("gateway.port must be a positive integer");
+      }
+      return { key, value };
+    }
+    case "gateway.trustProxyCIDRs": {
+      const values = rawValue
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      return { key, value: values };
+    }
+    case "gateway.enableRuntimeProxy": {
+      const value = readBoolean(rawValue);
+      if (value === undefined) {
+        throw new Error("gateway.enableRuntimeProxy must be true or false");
+      }
+      return { key, value };
+    }
     default:
-      throw new Error("Unsupported config key. Allowed keys: apiKey, model, provider, baseUrl, maxTokens, temperature, allowModelApiCall, profile");
+      throw new Error(
+        "Unsupported config key. Allowed keys: apiKey, model, provider, baseUrl, maxTokens, temperature, allowModelApiCall, profile, gateway.apiKey, gateway.host, gateway.port, gateway.trustProxyCIDRs, gateway.enableRuntimeProxy"
+      );
   }
 }
 
 function sanitizeStoredConfig(config: StoredConfig) {
   return {
     ...config,
-    apiKey: config.apiKey ? "[redacted]" : config.apiKey
+    apiKey: config.apiKey ? "[redacted]" : config.apiKey,
+    gateway: config.gateway
+      ? {
+          ...config.gateway,
+          apiKey: config.gateway.apiKey ? "[redacted]" : config.gateway.apiKey
+        }
+      : config.gateway
   };
+}
+
+function readGatewayConfig(value: unknown): StoredGatewayConfig | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const port = typeof raw.port === "number" ? raw.port : undefined;
+  const host = readString(raw.host);
+  const apiKey = readString(raw.apiKey);
+  const tls = readTlsConfig(raw.tls);
+  const trustProxyCIDRs = Array.isArray(raw.trustProxyCIDRs)
+    ? raw.trustProxyCIDRs.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : undefined;
+  const enableRuntimeProxy = typeof raw.enableRuntimeProxy === "boolean" ? raw.enableRuntimeProxy : undefined;
+
+  return {
+    ...(port === undefined ? {} : { port }),
+    ...(host ? { host } : {}),
+    ...(apiKey ? { apiKey } : {}),
+    ...(tls ? { tls } : {}),
+    ...(trustProxyCIDRs ? { trustProxyCIDRs } : {}),
+    ...(enableRuntimeProxy === undefined ? {} : { enableRuntimeProxy })
+  };
+}
+
+function readTlsConfig(value: unknown): GatewayConfigSection["tls"] | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const cert = readString(raw.cert);
+  const key = readString(raw.key);
+  if (!cert || !key) {
+    return undefined;
+  }
+
+  return { cert, key };
+}
+
+function applyStoredConfigValue(
+  current: StoredConfig,
+  key: string,
+  value: string | number | boolean | string[]
+): StoredConfig {
+  if (!key.startsWith("gateway.")) {
+    return {
+      ...current,
+      [key]: value
+    };
+  }
+
+  const gatewayKey = key.slice("gateway.".length) as keyof StoredGatewayConfig;
+  return {
+    ...current,
+    gateway: {
+      ...(current.gateway ?? {}),
+      [gatewayKey]: value
+    }
+  };
+}
+
+function readMcpConfig(value: unknown): StoredConfig["mcp"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  if (!Array.isArray(raw.servers)) {
+    return undefined;
+  }
+
+  const servers = raw.servers
+    .map(readMcpServerConfig)
+    .filter((entry): entry is import("@octopus/adapter-mcp").McpServerConfig => entry !== undefined);
+
+  return {
+    servers
+  };
+}
+
+function readMcpServerConfig(value: unknown): import("@octopus/adapter-mcp").McpServerConfig | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const id = readString(raw.id);
+  const transport = readMcpTransport(raw.transport);
+  if (!id || !transport) {
+    return undefined;
+  }
+
+  return {
+    id,
+    transport,
+    ...(readString(raw.command) ? { command: readString(raw.command)! } : {}),
+    ...(Array.isArray(raw.args) ? { args: raw.args.filter((entry): entry is string => typeof entry === "string") } : {}),
+    ...(readString(raw.url) ? { url: readString(raw.url)! } : {}),
+    ...(readStringRecord(raw.env) ? { env: readStringRecord(raw.env)! } : {}),
+    ...(readToolPolicyRecord(raw.toolPolicy) ? { toolPolicy: readToolPolicyRecord(raw.toolPolicy)! } : {}),
+    ...(raw.defaultToolPolicy === "allow" || raw.defaultToolPolicy === "deny"
+      ? { defaultToolPolicy: raw.defaultToolPolicy }
+      : {})
+  };
+}
+
+function readToolPolicyRecord(
+  value: unknown
+): Record<string, import("@octopus/adapter-mcp").McpToolPolicy> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const result: Record<string, import("@octopus/adapter-mcp").McpToolPolicy> = {};
+  for (const [key, rawPolicy] of Object.entries(value)) {
+    const policy = readToolPolicy(rawPolicy);
+    if (policy) {
+      result[key] = policy;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function readToolPolicy(value: unknown): import("@octopus/adapter-mcp").McpToolPolicy | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.allowed !== "boolean") {
+    return undefined;
+  }
+
+  const securityCategory =
+    raw.securityCategory === "read"
+    || raw.securityCategory === "patch"
+    || raw.securityCategory === "shell"
+    || raw.securityCategory === "network"
+      ? raw.securityCategory
+      : undefined;
+  const riskLevel =
+    raw.riskLevel === "safe"
+    || raw.riskLevel === "consequential"
+    || raw.riskLevel === "dangerous"
+      ? raw.riskLevel
+      : undefined;
+
+  return {
+    allowed: raw.allowed,
+    ...(securityCategory ? { securityCategory } : {}),
+    ...(riskLevel ? { riskLevel } : {})
+  };
+}
+
+function readStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string") {
+      result[key] = entry;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function readMcpTransport(value: unknown): import("@octopus/adapter-mcp").McpServerConfig["transport"] | undefined {
+  return value === "stdio" || value === "streamable-http" || value === "sse" ? value : undefined;
+}
+
+function resolveRemoteApiKey(config: LocalAppConfig, options: RemoteCommandOptions): string {
+  const apiKey = options.apiKey ?? config.gateway?.apiKey;
+  if (!apiKey || apiKey.trim().length === 0) {
+    throw new Error("Remote commands require --api-key or gateway.apiKey in config.");
+  }
+
+  return apiKey;
+}
+
+function assertGatewayProfile(profile: SecurityProfileName): void {
+  if (profile === "safe-local") {
+    throw new Error("Gateway requires 'vibe' or 'platform' profile.\nUse: octopus gateway run --profile vibe");
+  }
+}
+
+function assertGatewayConfig(config: LocalAppConfig): asserts config is LocalAppConfig & { gateway: GatewayConfigSection } {
+  if (!config.gateway) {
+    throw new Error("Gateway configuration is required. Set gateway.port, gateway.host, and gateway.apiKey.");
+  }
+  if (config.gateway.apiKey.trim().length === 0) {
+    throw new Error("gateway.apiKey must be configured.");
+  }
+}
+
+async function attachRemoteSession(remoteClient: RemoteClientLike, sessionId: string): Promise<void> {
+  const stdout = process.stdout;
+  const stdin = process.stdin;
+  let completionResolve!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    completionResolve = resolve;
+  });
+
+  let activeApproval: ApprovalRequestedMessage | undefined;
+  let buffer = "";
+  let handle: RemoteAttachHandle | undefined;
+  let cleanedUp = false;
+
+  const cleanup = () => {
+    if (cleanedUp) {
+      return;
+    }
+    cleanedUp = true;
+    stdin.off("data", onInput);
+    if (stdin.isTTY) {
+      stdin.setRawMode?.(false);
+    }
+    stdin.pause();
+  };
+
+  const onEvent = (event: WorkEvent) => {
+    stdout.write(`${JSON.stringify(event)}\n`);
+    if (
+      event.type === "session.completed"
+      || event.type === "session.failed"
+      || event.type === "session.cancelled"
+    ) {
+      handle?.detach();
+      cleanup();
+      completionResolve();
+    }
+  };
+
+  const onClose = (reason: string) => {
+    stdout.write(`disconnected: ${reason}\n`);
+    cleanup();
+    completionResolve();
+  };
+
+  const onApprovalRequested = (approval: ApprovalRequestedMessage) => {
+    activeApproval = approval;
+    stdout.write(`[APPROVAL] ${approval.description} (risk: ${approval.riskLevel}) [y/n]?\n`);
+  };
+
+  handle = await remoteClient.attachToSession(sessionId, onEvent, onClose, onApprovalRequested);
+
+  if (stdin.isTTY) {
+    stdin.setRawMode?.(true);
+  }
+  stdin.setEncoding("utf8");
+  stdin.resume();
+  stdin.on("data", onInput);
+
+  await completion;
+
+  async function onInput(chunk: string): Promise<void> {
+    if (chunk.includes("\u0003")) {
+      handle?.detach();
+      cleanup();
+      completionResolve();
+      return;
+    }
+
+    if (chunk.includes("\u0010")) {
+      await handle?.sendControl("pause");
+      return;
+    }
+
+    if (chunk.includes("\u0012")) {
+      await handle?.sendControl("resume");
+      return;
+    }
+
+    buffer += chunk;
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() ?? "";
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (line.length === 0) {
+        continue;
+      }
+
+      if (activeApproval) {
+        if (line === "y" || line === "yes") {
+          await handle?.sendApproval(activeApproval.promptId, "approve");
+          activeApproval = undefined;
+        } else if (line === "n" || line === "no") {
+          await handle?.sendApproval(activeApproval.promptId, "deny");
+          activeApproval = undefined;
+        }
+        continue;
+      }
+
+      if (line === "/cancel") {
+        await handle?.sendControl("cancel");
+      }
+    }
+  }
 }
 
 function readProvider(value: unknown): LocalAppConfig["runtime"]["provider"] | undefined {
@@ -439,6 +999,28 @@ function parseProfileOption(value: string): SecurityProfileName {
   }
 
   return profile;
+}
+
+async function connectConfiguredMcpServers(
+  config: LocalAppConfig,
+  dependencies: CliDependencies
+): Promise<McpServerManager | undefined> {
+  if (!config.mcp?.servers.length) {
+    return undefined;
+  }
+
+  const classifier = dependencies.createMcpSecurityClassifier();
+  const manager = dependencies.createMcpServerManager(classifier);
+  await manager.startAll(config.mcp.servers, new EventBus());
+  return manager;
+}
+
+function formatMcpTools(tools: McpToolDefinition[]) {
+  return tools.map((tool) => ({
+    serverId: tool.serverId,
+    name: tool.name,
+    description: tool.description ?? null
+  }));
 }
 
 function selectSnapshotId(
@@ -556,6 +1138,19 @@ function toError(error: unknown): Error | undefined {
 }
 
 async function waitForAutomationStop(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const handleStop = () => {
+      process.off("SIGINT", handleStop);
+      process.off("SIGTERM", handleStop);
+      resolve();
+    };
+
+    process.on("SIGINT", handleStop);
+    process.on("SIGTERM", handleStop);
+  });
+}
+
+async function waitForGatewayStop(): Promise<void> {
   await new Promise<void>((resolve) => {
     const handleStop = () => {
       process.off("SIGINT", handleStop);

@@ -4,10 +4,10 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 
 import type { EventPayloadByType, SubstrateEventType, WorkEvent } from "@octopus/observability";
-import type { Action, ActionResult } from "@octopus/work-contracts";
+import type { Action, ActionResult, ActionType } from "@octopus/work-contracts";
 
 import { resolveExistingWorkspacePath, resolveWorkspacePath } from "./path-utils.js";
-import type { ExecutionSubstratePort, SubstrateContext } from "./types.js";
+import type { ActionHandler, ExecutionSubstratePort, SubstrateContext } from "./types.js";
 
 interface SearchMatch {
   path: string;
@@ -15,7 +15,19 @@ interface SearchMatch {
   content: string;
 }
 
+const BUILT_IN_TYPES: ReadonlySet<ActionType> = new Set(["read", "patch", "shell", "search", "model-call"]);
+
 export class ExecutionSubstrate implements ExecutionSubstratePort {
+  constructor(private readonly extensions?: Map<ActionType, ActionHandler>) {
+    if (extensions) {
+      for (const key of extensions.keys()) {
+        if (BUILT_IN_TYPES.has(key)) {
+          throw new Error(`Cannot override built-in action type: ${key}`);
+        }
+      }
+    }
+  }
+
   async execute(action: Action, context: SubstrateContext): Promise<ActionResult> {
     switch (action.type) {
       case "read":
@@ -28,8 +40,13 @@ export class ExecutionSubstrate implements ExecutionSubstratePort {
         return executeShell(action, context);
       case "model-call":
         throw new Error("model-call is handled by the runtime, not exec-substrate.");
-      default:
+      default: {
+        const handler = this.extensions?.get(action.type);
+        if (handler) {
+          return handler(action, context);
+        }
         throw new Error(`Unsupported action type: ${String(action.type)}`);
+      }
     }
   }
 }

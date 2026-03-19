@@ -43,7 +43,7 @@ describe("WorkEngine resume", () => {
     expect(session.id).toBe("session-1");
     expect(runtime.initSessionCalls).toBe(0);
     expect(runtime.hydratedSnapshots).toHaveLength(1);
-    expect(runtime.loadContextCalls).toBe(0);
+    expect(runtime.loadContextCalls).toBe(1);
     expect(events.some((event) => event.type === "snapshot.restored")).toBe(true);
   });
 });

@@ -1,4 +1,3 @@
-import * as crypto from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -29,9 +28,7 @@ describe("gateway auth foundation", () => {
 
     const result = store.mintToken("operator-1", ["sessions.read"]);
 
-    expect(result.token).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    );
+    expect(result.token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 
@@ -107,16 +104,8 @@ describe("gateway auth foundation", () => {
       defaultPermissions: ["sessions.list", "config.read"]
     };
 
-    const apiKeyOperator = authenticateRequest(
-      createRequest({ "x-api-key": "secret" }),
-      config,
-      tokenStore
-    );
-    const tokenOperator = authenticateRequest(
-      createRequest({ authorization: `Bearer ${token}` }),
-      config,
-      tokenStore
-    );
+    const apiKeyOperator = authenticateRequest(createRequest({ "x-api-key": "secret" }), config, tokenStore);
+    const tokenOperator = authenticateRequest(createRequest({ authorization: `Bearer ${token}` }), config, tokenStore);
 
     expect(apiKeyOperator).toEqual({
       operatorId: "operator",
@@ -156,18 +145,24 @@ describe("gateway auth foundation", () => {
 
     expect(
       isSecureConnection(
-        createRequest({}, {
-          encrypted: true,
-          remoteAddress: "203.0.113.10"
-        }),
+        createRequest(
+          {},
+          {
+            encrypted: true,
+            remoteAddress: "203.0.113.10"
+          }
+        ),
         config
       )
     ).toBe(true);
     expect(
       isSecureConnection(
-        createRequest({}, {
-          remoteAddress: "127.0.0.1"
-        }),
+        createRequest(
+          {},
+          {
+            remoteAddress: "127.0.0.1"
+          }
+        ),
         config
       )
     ).toBe(true);

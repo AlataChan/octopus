@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { createServer as createTlsServer, type Server as HttpsServer } from "node:https";
-import { type AddressInfo } from "node:net";
 import { URL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 
 import type { AgentRuntime } from "@octopus/agent-runtime";
-import { EventBus, TraceReader } from "@octopus/observability";
+import type { EventBus, TraceReader } from "@octopus/observability";
 import type { PolicyResolution, SecurityPolicy, SecurityProfileName } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
 import type { WorkEngine } from "@octopus/work-core";
@@ -21,12 +20,7 @@ import { handleMintToken } from "./routes/auth-routes.js";
 import { handleControl } from "./routes/control.js";
 import { handleSubmitGoal } from "./routes/goals.js";
 import { handleHealth } from "./routes/health.js";
-import {
-  HttpError,
-  readJsonBody,
-  writeJson,
-  type RouteDeps
-} from "./routes/shared.js";
+import { HttpError, readJsonBody, writeJson, type RouteDeps } from "./routes/shared.js";
 import { handleGetEvents, handleGetSession, handleListSessions, handleListSnapshots } from "./routes/sessions.js";
 import { handleStatus } from "./routes/status.js";
 import type { GatewayConfig } from "./types.js";
@@ -281,7 +275,7 @@ export class GatewayServer {
       throw new Error("Gateway with platform profile requires allowRemote: true in policy file.");
     }
 
-    if (!isLoopback(this.config.host) && !this.config.tls && !(this.config.trustProxyCIDRs?.length)) {
+    if (!isLoopback(this.config.host) && !this.config.tls && !this.config.trustProxyCIDRs?.length) {
       throw new Error("TLS required for non-loopback gateway exposure.");
     }
   }
@@ -307,12 +301,7 @@ export class GatewayServer {
       if (eventMatch) {
         this.eventWss!.handleUpgrade(req, socket, head, (ws) => {
           this.trackSocket(ws as GatewaySocket);
-          handleEventStreamUpgrade(
-            this.eventWss!,
-            ws,
-            decodeURIComponent(eventMatch[1]),
-            this.createRouteDeps()
-          );
+          handleEventStreamUpgrade(this.eventWss!, ws, decodeURIComponent(eventMatch[1]), this.createRouteDeps());
         });
         return;
       }

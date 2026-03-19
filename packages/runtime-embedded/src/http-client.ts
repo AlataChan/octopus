@@ -1,5 +1,3 @@
-import type { RuntimeResponse } from "@octopus/agent-runtime";
-
 import type { EmbeddedRuntimeConfig } from "./config.js";
 import { ModelTurnError, type ModelClient, type ModelTelemetry, type ModelTurnResult } from "./runtime.js";
 import { buildTurnPrompt } from "./prompt-builder.js";

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 
 import { verifySlackSignature } from "./slack/signature.js";
-import { SlackAdapter } from "./slack/adapter.js";
+import type { SlackAdapter } from "./slack/adapter.js";
 import type { SlackConfig } from "./types.js";
 
 export class ChatServer {
@@ -59,11 +59,7 @@ export class ChatServer {
     const timestamp = readHeader(req, "x-slack-request-timestamp");
     const signature = readHeader(req, "x-slack-signature");
 
-    if (
-      !timestamp ||
-      !signature ||
-      !verifySlackSignature(this.config.signingSecret, timestamp, rawBody, signature)
-    ) {
+    if (!timestamp || !signature || !verifySlackSignature(this.config.signingSecret, timestamp, rawBody, signature)) {
       res.statusCode = 401;
       res.setHeader("content-type", "application/json; charset=utf-8");
       res.end(JSON.stringify({ error: "Invalid Slack signature" }));

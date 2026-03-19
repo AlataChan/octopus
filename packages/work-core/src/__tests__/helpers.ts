@@ -1,9 +1,15 @@
 import type { AgentRuntime, RuntimeResponse, SessionSnapshot } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
-import { EventBus, type WorkEvent } from "@octopus/observability";
+import type { EventBus, WorkEvent } from "@octopus/observability";
 import type { SecurityPolicy } from "@octopus/security";
 import type { SnapshotSummary, StateStore } from "@octopus/state-store";
-import { createWorkSession, type Action, type ActionResult, type WorkGoal, type WorkSession } from "@octopus/work-contracts";
+import {
+  createWorkSession,
+  type Action,
+  type ActionResult,
+  type WorkGoal,
+  type WorkSession
+} from "@octopus/work-contracts";
 import type { ReleaseReason, WorkspaceLock } from "../workspace-lock.js";
 
 export class FakeRuntime implements AgentRuntime {

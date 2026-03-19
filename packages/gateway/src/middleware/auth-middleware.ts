@@ -1,11 +1,10 @@
 import type { IncomingMessage } from "node:http";
 
-import { TokenStore, validateApiKey } from "../auth.js";
+import { validateApiKey } from "../auth.js";
+import type { TokenStore } from "../auth.js";
 import type { GatewayAuthConfig, GatewayPermission, OperatorContext } from "../types.js";
 
-export type RequestCredentials =
-  | { type: "api-key"; key: string }
-  | { type: "bearer"; token: string };
+export type RequestCredentials = { type: "api-key"; key: string } | { type: "bearer"; token: string };
 
 export function extractCredentials(req: IncomingMessage): RequestCredentials | null {
   const apiKeyHeader = readHeader(req, "x-api-key");

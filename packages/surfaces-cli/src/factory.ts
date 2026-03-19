@@ -15,7 +15,7 @@ import { createPolicy, type PolicyResolution, type SecurityPolicy, type Security
 import { FileStateStore } from "@octopus/state-store";
 import type { ActionType } from "@octopus/work-contracts";
 import { WorkEngine } from "@octopus/work-core";
-import { GatewayServer, type GatewayConfig } from "../../gateway/src/index.js";
+import { GatewayServer, type GatewayConfig } from "@octopus/gateway";
 
 export interface LocalAppConfig {
   workspaceRoot: string;

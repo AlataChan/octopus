@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EventBus } from "../../../observability/src/index.js";
+import { EventBus } from "@octopus/observability";
 import type { Action, ActionResult } from "@octopus/work-contracts";
 
 import { type McpClient } from "../client.js";

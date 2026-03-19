@@ -138,7 +138,7 @@ export async function createGatewayApp(
 ): Promise<GatewayApp> {
   const localApp = await createLocalWorkEngine(config, dependencies);
   const gatewayServer = new GatewayServer(
-    toGatewayConfig(config.gateway),
+    toGatewayConfig(config.gateway, config.workspaceRoot),
     localApp.engine,
     localApp.runtime,
     localApp.store,
@@ -185,10 +185,11 @@ function createPolicyEvent<T extends "profile.selected" | "policy.resolved">(
   } as Extract<WorkEvent, { type: T }>;
 }
 
-function toGatewayConfig(config: GatewayConfigSection): GatewayConfig {
+function toGatewayConfig(config: GatewayConfigSection, workspaceRoot: string): GatewayConfig {
   return {
     port: config.port,
     host: config.host,
+    workspaceRoot,
     ...(config.tls ? { tls: config.tls } : {}),
     ...(config.trustProxyCIDRs ? { trustProxyCIDRs: [...config.trustProxyCIDRs] } : {}),
     auth: {

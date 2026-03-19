@@ -17,6 +17,7 @@ export interface RouteDeps {
   policy: SecurityPolicy;
   tokenStore: TokenStore;
   config: GatewayConfig;
+  workspaceRoot: string;
   traceReader?: TraceReader;
   profileName: SecurityProfileName;
   policyResolution: PolicyResolution;

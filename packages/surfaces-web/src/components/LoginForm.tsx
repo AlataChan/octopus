@@ -1,10 +1,13 @@
 import { useState } from "preact/hooks";
 
+import { useI18n } from "../i18n/useI18n.js";
+
 interface LoginFormProps {
   onLogin: (apiKey: string) => Promise<void>;
 }
 
 export function LoginForm({ onLogin }: LoginFormProps) {
+  const { t, localizeError } = useI18n();
   const [apiKey, setApiKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +21,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       await onLogin(apiKey);
       setApiKey("");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Login failed.");
+      setError(submitError instanceof Error ? localizeError(submitError.message) : t("login.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -26,10 +29,10 @@ export function LoginForm({ onLogin }: LoginFormProps) {
 
   return (
     <form class="card login-form" onSubmit={handleSubmit}>
-      <h1>Octopus</h1>
-      <p>Enter the gateway API key to mint a browser session token.</p>
+      <h1>{t("brand.name")}</h1>
+      <p>{t("login.description")}</p>
       <label class="field">
-        <span>API Key</span>
+        <span>{t("login.apiKey")}</span>
         <input
           type="password"
           value={apiKey}
@@ -39,7 +42,7 @@ export function LoginForm({ onLogin }: LoginFormProps) {
       </label>
       {error ? <p class="error-text">{error}</p> : null}
       <button type="submit" disabled={submitting || apiKey.trim().length === 0}>
-        {submitting ? "Connecting..." : "Connect"}
+        {submitting ? t("login.connecting") : t("login.connect")}
       </button>
     </form>
   );

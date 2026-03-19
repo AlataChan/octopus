@@ -16,6 +16,7 @@ import { authenticateRequest } from "./middleware/auth-middleware.js";
 import { validateOrigin } from "./middleware/origin-guard.js";
 import { isLoopback, isSecureConnection } from "./middleware/tls-guard.js";
 import { handleApproval } from "./routes/approval.js";
+import { handleGetArtifactContent } from "./routes/artifacts.js";
 import { handleMintToken } from "./routes/auth-routes.js";
 import { handleControl } from "./routes/control.js";
 import { handleSubmitGoal } from "./routes/goals.js";
@@ -198,6 +199,21 @@ export class GatewayServer {
         return;
       }
 
+      const artifactContentMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/artifacts\/content$/);
+      if (method === "GET" && artifactContentMatch) {
+        writeJson(
+          res,
+          200,
+          await handleGetArtifactContent(
+            deps,
+            operator,
+            decodeURIComponent(artifactContentMatch[1]),
+            url.searchParams.get("path")
+          )
+        );
+        return;
+      }
+
       const controlMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/control$/);
       if (method === "POST" && controlMatch) {
         writeJson(
@@ -239,6 +255,7 @@ export class GatewayServer {
       policy: this.policy,
       tokenStore: this.tokenStore,
       config: this.config,
+      workspaceRoot: this.config.workspaceRoot,
       traceReader: this.traceReader,
       profileName: this.profileName,
       policyResolution: this.policyResolution,

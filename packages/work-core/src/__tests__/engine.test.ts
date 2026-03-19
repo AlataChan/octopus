@@ -169,6 +169,28 @@ describe("WorkEngine", () => {
     expect(session.transitions.at(-1)?.reason).toBe("Completion predicate failed.");
   });
 
+  it("derives a goalSummary for fresh sessions and persists it", async () => {
+    const description = "  读取   README.md   并整理成一个适合产品经理快速浏览的中文摘要，保留关键限制与输出要求。  ";
+    const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+    const store = new MemoryStateStore();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      store,
+      new EventBus(),
+      allowAllPolicy()
+    );
+
+    const session = await engine.executeGoal(createWorkGoal({ description }));
+
+    expect(session.goalSummary).toBeDefined();
+    expect(session.goalSummary).toContain("读取 README.md 并整理成一个适合产品经理快速浏览的中文摘要");
+    expect(session.goalSummary).not.toContain("  ");
+    expect(session.goalSummary?.length).toBeLessThan(description.length);
+    expect(session.goalSummary?.length).toBeLessThanOrEqual(60);
+    expect(store.sessions.at(-1)?.goalSummary).toBe(session.goalSummary);
+  });
+
   it("keeps the active work item open until the session actually completes", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-work-core-"));
     tempDirs.push(workspaceRoot);
@@ -466,6 +488,7 @@ class MemoryStateStore implements StateStore {
       id: session.id,
       goalId: session.goalId,
       ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
+      ...(session.goalSummary ? { goalSummary: session.goalSummary } : {}),
       state: session.state,
       updatedAt: session.updatedAt
     }));

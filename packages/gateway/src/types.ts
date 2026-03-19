@@ -23,6 +23,7 @@ export interface GatewayAuthConfig {
 export interface GatewayConfig {
   port: number;
   host: string;
+  workspaceRoot: string;
   tls?: {
     cert: string;
     key: string;

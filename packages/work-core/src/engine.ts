@@ -99,6 +99,7 @@ export class WorkEngine {
 
   private async startSession(goal: WorkGoal, workspaceRoot?: string): Promise<WorkSession> {
     const session = await this.runtime.initSession(goal);
+    session.goalSummary = summarizeGoalDescription(goal.description);
     if (session.items.length === 0) {
       session.items.push(createDefaultWorkItem(session, goal));
     }
@@ -548,6 +549,10 @@ async function listVisibleFiles(workspaceRoot: string): Promise<string[]> {
   await walkVisibleFiles(workspaceRoot, "", visibleFiles);
 
   return visibleFiles;
+}
+
+function summarizeGoalDescription(description: string): string {
+  return description.trim().replace(/\s+/g, " ").slice(0, 60);
 }
 
 async function walkVisibleFiles(workspaceRoot: string, relativeDir: string, visibleFiles: string[]): Promise<void> {

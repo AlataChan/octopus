@@ -82,6 +82,9 @@ export class FileStateStore implements StateStore {
             if (session.namedGoalId) {
               summary.namedGoalId = session.namedGoalId;
             }
+            if (session.goalSummary) {
+              summary.goalSummary = session.goalSummary;
+            }
             return summary;
           })
       );

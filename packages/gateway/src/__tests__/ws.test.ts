@@ -276,6 +276,7 @@ function createDeps(
     } satisfies SecurityPolicy,
     tokenStore,
     config,
+    workspaceRoot: config.workspaceRoot,
     traceReader: {
       read: vi.fn(async () => options.traceEvents ?? [])
     } as unknown as RouteDeps["traceReader"],
@@ -350,6 +351,7 @@ function mergeConfig(configOverrides: Partial<GatewayConfig>): GatewayConfig {
   return {
     port: 4321,
     host: "127.0.0.1",
+    workspaceRoot: "/workspace",
     auth: {
       apiKey: "secret",
       defaultPermissions: [

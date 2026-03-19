@@ -33,7 +33,7 @@ export async function handleSubmitGoal(
     constraints: body.constraints ?? [],
     namedGoalId: body.namedGoalId
   });
-  const session = await deps.engine.executeGoal(goal, {});
+  const session = await deps.engine.executeGoal(goal, { workspaceRoot: deps.workspaceRoot });
 
   deps.eventBus.emit({
     id: randomUUID(),

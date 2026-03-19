@@ -103,6 +103,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: "surfaces-web",
+          include: ["packages/surfaces-web/src/**/*.test.ts", "packages/surfaces-web/src/**/*.test.tsx"],
+          environment: "jsdom",
+          setupFiles: ["packages/surfaces-web/src/test/setup.ts"]
+        }
+      },
+      {
+        test: {
           name: "gateway",
           include: ["packages/gateway/**/*.test.ts"]
         }

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -91,6 +91,7 @@ describe("FileStateStore", () => {
     const store = new FileStateStore(root);
     const goal = createWorkGoal({ description: "List sessions", namedGoalId: "daily-report" });
     const session = createWorkSession(goal);
+    session.goalSummary = "List sessions";
     const artifact = {
       id: "artifact-1",
       type: "document" as const,
@@ -111,10 +112,32 @@ describe("FileStateStore", () => {
         id: session.id,
         goalId: goal.id,
         namedGoalId: "daily-report",
+        goalSummary: "List sessions",
         state: "created",
         updatedAt: session.updatedAt
       }
     ]);
     expect(artifacts).toEqual([artifact]);
+  });
+
+  it("loads older stored sessions without goalSummary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "octopus-state-"));
+    tempDirs.push(root);
+
+    const store = new FileStateStore(root);
+    const goal = createWorkGoal({ description: "Legacy session" });
+    const session = createWorkSession(goal);
+
+    await store.saveSession(session);
+
+    const sessionPath = join(root, "sessions", session.id, "session.json");
+    const raw = JSON.parse(await readFile(sessionPath, "utf8")) as Record<string, unknown>;
+    delete raw.goalSummary;
+    await writeFile(sessionPath, JSON.stringify(raw, null, 2));
+
+    const loaded = await store.loadSession(session.id);
+
+    expect(loaded).not.toBeNull();
+    expect(loaded?.goalSummary).toBeUndefined();
   });
 });

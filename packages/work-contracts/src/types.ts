@@ -124,6 +124,7 @@ export interface WorkSession {
   id: string;
   goalId: string;
   namedGoalId?: string;
+  goalSummary?: string;
   state: SessionState;
   items: WorkItem[];
   observations: Observation[];
@@ -137,6 +138,7 @@ export interface SessionSummary {
   id: string;
   goalId: string;
   namedGoalId?: string;
+  goalSummary?: string;
   state: SessionState;
   updatedAt: Date;
 }

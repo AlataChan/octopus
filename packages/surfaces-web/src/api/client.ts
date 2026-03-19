@@ -9,6 +9,18 @@ export interface GoalSubmissionResponse {
   state: string;
 }
 
+export interface GoalSubmissionInput {
+  description: string;
+  namedGoalId?: string;
+}
+
+export interface ArtifactContentResponse {
+  path: string;
+  type: string;
+  contentType: string;
+  content: string;
+}
+
 export interface StatusResponse {
   profile: string;
   apiKeyConfigured: boolean;
@@ -72,8 +84,8 @@ export class GatewayClient {
     return reviveWorkSession(await this.requestJson<WorkSession>("GET", `/api/sessions/${encodeURIComponent(id)}`));
   }
 
-  async submitGoal(description: string): Promise<GoalSubmissionResponse> {
-    return this.requestJson<GoalSubmissionResponse>("POST", "/api/goals", { description });
+  async submitGoal(input: GoalSubmissionInput): Promise<GoalSubmissionResponse> {
+    return this.requestJson<GoalSubmissionResponse>("POST", "/api/goals", input);
   }
 
   async controlSession(id: string, action: "pause" | "resume" | "cancel"): Promise<void> {
@@ -89,6 +101,13 @@ export class GatewayClient {
 
   async getStatus(): Promise<StatusResponse> {
     return this.requestJson<StatusResponse>("GET", "/api/status");
+  }
+
+  async getArtifactContent(sessionId: string, path: string): Promise<ArtifactContentResponse> {
+    return this.requestJson<ArtifactContentResponse>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/artifacts/content?path=${encodeURIComponent(path)}`
+    );
   }
 
   connectEventStream(

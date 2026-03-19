@@ -1,7 +1,10 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -17,6 +20,7 @@ import type { GatewayConfig } from "../types.js";
 
 const servers: GatewayServer[] = [];
 const serverSpies: Array<ReturnType<typeof vi.spyOn>> = [];
+const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
@@ -25,6 +29,7 @@ afterEach(async () => {
     })
   );
   serverSpies.splice(0).forEach((spy) => spy.mockRestore());
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
 describe("GatewayServer", () => {
@@ -171,6 +176,66 @@ describe("GatewayServer", () => {
     expect(missing.statusCode).toBe(404);
     expect(invalidControl.statusCode).toBe(400);
   });
+
+  it("submits goals with namedGoalId and workspaceRoot from config", async () => {
+    const { server, executeGoalCalls } = createGatewayServerHarness({
+      workspaceRoot: "/workspace"
+    });
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/goals",
+      {
+        description: "整理 README",
+        namedGoalId: "readme-summary"
+      },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(executeGoalCalls).toHaveLength(1);
+    expect(executeGoalCalls[0]?.goal.namedGoalId).toBe("readme-summary");
+    expect(executeGoalCalls[0]?.options).toEqual({ workspaceRoot: "/workspace" });
+  });
+
+  it("returns registered artifact content and rejects unknown or unsafe paths", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-artifacts-"));
+    tempDirs.push(workspaceRoot);
+    await writeFile(join(workspaceRoot, "PLAN.md"), "# PLAN\n\ncontent", "utf8");
+
+    const { server, session } = createGatewayServerHarness({
+      workspaceRoot
+    });
+    session.artifacts.push({
+      id: "artifact-1",
+      type: "document",
+      path: "PLAN.md",
+      description: "Current plan",
+      createdAt: new Date("2026-03-19T15:42:36.000Z")
+    });
+
+    const ok = await dispatch(server, "GET", "/api/sessions/session-1/artifacts/content?path=PLAN.md", undefined, {
+      "x-api-key": "secret"
+    });
+    const missing = await dispatch(server, "GET", "/api/sessions/session-1/artifacts/content?path=report.csv", undefined, {
+      "x-api-key": "secret"
+    });
+    const unsafe = await dispatch(server, "GET", "/api/sessions/session-1/artifacts/content?path=../../etc/passwd", undefined, {
+      "x-api-key": "secret"
+    });
+
+    expect(ok.statusCode).toBe(200);
+    expect(ok.body).toEqual(expect.objectContaining({
+      path: "PLAN.md",
+      contentType: "text/markdown; charset=utf-8",
+      content: "# PLAN\n\ncontent"
+    }));
+    expect(missing.statusCode).toBe(404);
+    expect(unsafe.statusCode).toBe(404);
+  });
 });
 
 async function dispatch(
@@ -247,6 +312,23 @@ function createGatewayServer(
     defaultDeny: false
   }
 ): GatewayServer {
+  return createGatewayServerHarness(configOverrides, profileName, policyResolution).server;
+}
+
+function createGatewayServerHarness(
+  configOverrides: Partial<GatewayConfig> = {},
+  profileName: "safe-local" | "vibe" | "platform" = "platform",
+  policyResolution: PolicyResolution = {
+    profile: "platform",
+    source: "global",
+    allowRemote: true,
+    defaultDeny: false
+  }
+): {
+  server: GatewayServer;
+  session: WorkSession;
+  executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }>;
+} {
   const session = createWorkSession(createWorkGoal({ id: "goal-1", description: "Demo" }), {
     id: "session-1"
   });
@@ -254,8 +336,10 @@ function createGatewayServer(
 
   const store = new MemoryStore([session]);
   const eventBus = new EventBus();
+  const executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }> = [];
   const engine = {
-    async executeGoal(goal: WorkGoal): Promise<WorkSession> {
+    async executeGoal(goal: WorkGoal, options?: Record<string, unknown>): Promise<WorkSession> {
+      executeGoalCalls.push({ goal, options });
       return createWorkSession(goal, { id: "generated-session" });
     },
     async pauseSession(sessionId: string): Promise<WorkSession> {
@@ -319,31 +403,36 @@ function createGatewayServer(
     approveForSession() {}
   };
 
-  return new GatewayServer(
-    {
-      port: 0,
-      host: "127.0.0.1",
-      auth: {
-        apiKey: "secret",
-        defaultPermissions: [
-          "sessions.list",
-          "sessions.read",
-          "sessions.control",
-          "sessions.approve",
-          "goals.submit",
-          "config.read"
-        ]
+  return {
+    server: new GatewayServer(
+      {
+        port: 0,
+        host: "127.0.0.1",
+        workspaceRoot: "/workspace",
+        auth: {
+          apiKey: "secret",
+          defaultPermissions: [
+            "sessions.list",
+            "sessions.read",
+            "sessions.control",
+            "sessions.approve",
+            "goals.submit",
+            "config.read"
+          ]
+        },
+        ...configOverrides
       },
-      ...configOverrides
-    },
-    engine,
-    runtime,
-    store,
-    eventBus,
-    policy,
-    profileName,
-    policyResolution
-  );
+      engine,
+      runtime,
+      store,
+      eventBus,
+      policy,
+      profileName,
+      policyResolution
+    ),
+    session,
+    executeGoalCalls
+  };
 }
 
 class MemoryStore implements StateStore {

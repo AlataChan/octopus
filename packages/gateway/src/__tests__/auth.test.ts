@@ -136,6 +136,7 @@ describe("gateway auth foundation", () => {
     const config = {
       port: 4321,
       host: "0.0.0.0",
+      workspaceRoot: "/workspace",
       auth: {
         apiKey: "secret",
         defaultPermissions: []
@@ -199,6 +200,7 @@ describe("gateway auth foundation", () => {
       validateOrigin("https://octopus.example.com:4321", {
         port: 4321,
         host: "octopus.example.com",
+        workspaceRoot: "/workspace",
         tls: {
           cert: "cert.pem",
           key: "key.pem"
@@ -214,6 +216,7 @@ describe("gateway auth foundation", () => {
       validateOrigin("https://console.example.com", {
         port: 4321,
         host: "octopus.example.com",
+        workspaceRoot: "/workspace",
         auth: {
           apiKey: "secret",
           defaultPermissions: []
@@ -226,6 +229,7 @@ describe("gateway auth foundation", () => {
       validateOrigin(undefined, {
         port: 4321,
         host: "octopus.example.com",
+        workspaceRoot: "/workspace",
         auth: {
           apiKey: "secret",
           defaultPermissions: []

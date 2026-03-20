@@ -260,9 +260,10 @@ export function buildCli(
   evalCommand
     .command("run")
     .option("--suite <path>", "Path to eval suite directory", ".octopus/evals")
-    .option("--profile <profile>", "security profile", "vibe")
+    .option("--profile <profile>", "security profile: safe-local, vibe, or platform", "vibe")
     .action(async (options: { suite: string; profile?: string }) => {
       const config = configFactory();
+      const evalProfile = options.profile ? parseProfileOption(options.profile) : "vibe";
       const suitePath = resolve(config.workspaceRoot, options.suite);
       const cases = await loadEvalSuite(suitePath);
       if (cases.length === 0) {
@@ -282,7 +283,7 @@ export function buildCli(
       });
 
       process.stdout.write(`Running ${cases.length} eval case(s)...\n`);
-      const results = await runner.runSuite(cases, { defaultProfile: options.profile });
+      const results = await runner.runSuite(cases, { defaultProfile: evalProfile });
       const report = buildReport(options.suite, results);
       await saveReport(config.dataDir, report);
 

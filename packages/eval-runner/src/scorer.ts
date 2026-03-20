@@ -8,8 +8,10 @@ import type { WorkSession } from "@octopus/work-contracts";
 import type { AssertionResult, EvalAssertion } from "./types.js";
 
 function resolveAssertionPath(workspaceRoot: string, relativePath: string): string {
+  const resolvedRoot = resolve(workspaceRoot);
   const resolved = resolve(workspaceRoot, relativePath);
-  if (!resolved.startsWith(resolve(workspaceRoot))) {
+  // Use path.sep suffix to prevent sibling-prefix bypass (e.g., /tmp/work-evil matching /tmp/work)
+  if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + "/")) {
     throw new Error(`Assertion path "${relativePath}" escapes workspace root`);
   }
   return resolved;

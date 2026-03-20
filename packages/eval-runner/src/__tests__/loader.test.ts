@@ -85,6 +85,34 @@ describe("validateEvalCase", () => {
     }, "test")).toThrow("not allowed");
   });
 
+  it("rejects file-exists without path", () => {
+    expect(() => validateEvalCase({
+      id: "x", description: "x", goal: { description: "y" },
+      assertions: [{ type: "file-exists" }]
+    }, "test")).toThrow("path");
+  });
+
+  it("rejects file-contains without pattern", () => {
+    expect(() => validateEvalCase({
+      id: "x", description: "x", goal: { description: "y" },
+      assertions: [{ type: "file-contains", path: "f.txt" }]
+    }, "test")).toThrow("pattern");
+  });
+
+  it("rejects shell-passes without command", () => {
+    expect(() => validateEvalCase({
+      id: "x", description: "x", goal: { description: "y" },
+      assertions: [{ type: "shell-passes" }]
+    }, "test")).toThrow("command");
+  });
+
+  it("rejects artifact-count without min", () => {
+    expect(() => validateEvalCase({
+      id: "x", description: "x", goal: { description: "y" },
+      assertions: [{ type: "artifact-count" }]
+    }, "test")).toThrow("min");
+  });
+
   it("passes valid case", () => {
     const result = validateEvalCase({
       id: "test-1", description: "Test case", goal: { description: "Do stuff" },

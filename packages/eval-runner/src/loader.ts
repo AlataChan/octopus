@@ -58,6 +58,7 @@ export function validateEvalCase(data: unknown, source: string): EvalCase {
     if (!assertion || typeof assertion !== "object" || !VALID_ASSERTION_TYPES.has((assertion as { type?: string }).type ?? "")) {
       throw new Error(`Invalid eval case in ${source}: invalid assertion type "${(assertion as { type?: string }).type ?? "unknown"}"`);
     }
+    validateAssertionFields(assertion as Record<string, unknown>, source);
   }
 
   // Validate fixture paths
@@ -73,4 +74,33 @@ export function validateEvalCase(data: unknown, source: string): EvalCase {
   }
 
   return data as EvalCase;
+}
+
+function validateAssertionFields(assertion: Record<string, unknown>, source: string): void {
+  const type = assertion.type as string;
+  switch (type) {
+    case "file-exists":
+    case "file-contains":
+    case "file-matches":
+      if (typeof assertion.path !== "string" || assertion.path.trim().length === 0) {
+        throw new Error(`Invalid eval case in ${source}: "${type}" assertion requires a non-empty "path"`);
+      }
+      if (type === "file-contains" && typeof assertion.pattern !== "string") {
+        throw new Error(`Invalid eval case in ${source}: "file-contains" assertion requires a "pattern" string`);
+      }
+      if (type === "file-matches" && typeof assertion.expected !== "string") {
+        throw new Error(`Invalid eval case in ${source}: "file-matches" assertion requires an "expected" string`);
+      }
+      break;
+    case "shell-passes":
+      if (typeof assertion.command !== "string" || assertion.command.trim().length === 0) {
+        throw new Error(`Invalid eval case in ${source}: "shell-passes" assertion requires a non-empty "command"`);
+      }
+      break;
+    case "artifact-count":
+      if (typeof assertion.min !== "number" || assertion.min < 0) {
+        throw new Error(`Invalid eval case in ${source}: "artifact-count" assertion requires a non-negative "min"`);
+      }
+      break;
+  }
 }

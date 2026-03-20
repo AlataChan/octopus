@@ -1,15 +1,15 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 
-import { verifySlackSignature } from "./slack/signature.js";
-import type { SlackAdapter } from "./slack/adapter.js";
-import type { SlackConfig } from "./types.js";
+import { verifyWebhookSignature } from "./signature.js";
+import type { WebhookAdapter } from "./webhook-adapter.js";
+import type { WebhookChatConfig } from "./types.js";
 
 export class ChatServer {
   private server?: HttpServer;
 
   constructor(
-    private readonly config: SlackConfig,
-    private readonly adapter: SlackAdapter
+    private readonly config: WebhookChatConfig,
+    private readonly adapter: WebhookAdapter
   ) {}
 
   async start(): Promise<void> {
@@ -49,25 +49,34 @@ export class ChatServer {
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (req.method !== "POST" || req.url !== "/slack/commands") {
+    if (req.method !== "POST" || req.url !== "/webhook/goals") {
       res.statusCode = 404;
       res.end(JSON.stringify({ error: "Not found" }));
       return;
     }
 
     const rawBody = await readRawBody(req);
-    const timestamp = readHeader(req, "x-slack-request-timestamp");
-    const signature = readHeader(req, "x-slack-signature");
+    const timestamp = readHeader(req, "x-webhook-timestamp");
+    const signature = readHeader(req, "x-webhook-signature");
 
-    if (!timestamp || !signature || !verifySlackSignature(this.config.signingSecret, timestamp, rawBody, signature)) {
+    if (!timestamp || !signature || !verifyWebhookSignature(this.config.signingSecret, timestamp, rawBody, signature)) {
       res.statusCode = 401;
       res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ error: "Invalid Slack signature" }));
+      res.end(JSON.stringify({ error: "Invalid webhook signature" }));
       return;
     }
 
-    const body = Object.fromEntries(new URLSearchParams(rawBody).entries());
-    const payload = await this.adapter.handleSlashCommand(body);
+    let body: { text?: string; callbackUrl?: string; channelId?: string };
+    try {
+      body = JSON.parse(rawBody) as { text?: string; callbackUrl?: string; channelId?: string };
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ error: "Invalid JSON body" }));
+      return;
+    }
+
+    const payload = await this.adapter.handleGoalSubmission(body);
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
     res.end(JSON.stringify(payload));

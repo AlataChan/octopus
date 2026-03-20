@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --platform node --external @octopus/adapter-mcp --external @octopus/automation --external @octopus/agent-runtime --external @octopus/exec-substrate --external @octopus/gateway --external @octopus/observability --external @octopus/runtime-embedded --external @octopus/security --external @octopus/state-store --external @octopus/work-contracts --external @octopus/work-core --external commander --external chalk --external ora --external inquirer --external ws --external @anthropic-ai/sdk --external @modelcontextprotocol/sdk",
+    "build": "tsup src/index.ts --format esm --dts --platform node --external @octopus/adapter-mcp --external @octopus/automation --external @octopus/agent-runtime --external @octopus/exec-substrate --external @octopus/gateway --external @octopus/observability --external @octopus/runtime-embedded --external @octopus/security --external @octopus/state-store --external @octopus/work-contracts --external @octopus/work-core --external commander --external chalk --external ora --external inquirer --external ws --external @modelcontextprotocol/sdk",
     "type-check": "tsc --noEmit -p tsconfig.json",
     "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project surfaces-cli"
   },

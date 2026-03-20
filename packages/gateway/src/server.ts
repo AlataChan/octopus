@@ -51,8 +51,10 @@ export class GatewayServer {
     private eventBus: EventBus,
     private policy: SecurityPolicy,
     private profileName: SecurityProfileName,
-    private policyResolution: PolicyResolution
+    private policyResolution: PolicyResolution,
+    traceReader?: TraceReader
   ) {
+    this.traceReader = traceReader;
     this.tokenStore = new TokenStore(config.auth.sessionTokenTtlMs ?? 3_600_000);
   }
 

@@ -20,7 +20,10 @@ export function SessionList({ sessions, selectedSessionId, onSelect, onRefresh }
       </div>
       <ul class="session-list">
         {sessions.map((session) => {
-          const primaryLabel = session.namedGoalId ?? session.goalSummary ?? toShortSessionId(session.id);
+          const primaryLabel = session.namedGoalId
+            ?? session.goalSummary
+            ?? session.goalId
+            ?? toShortSessionId(session.id);
           const secondaryLabel = session.namedGoalId ? session.goalSummary : undefined;
 
           return (

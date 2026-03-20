@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export function verifySlackSignature(
-  signingSecret: string,
+export function verifyWebhookSignature(
+  secret: string,
   timestamp: string,
   body: string,
   signature: string
@@ -17,7 +17,7 @@ export function verifySlackSignature(
   }
 
   const expected = Buffer.from(
-    `v0=${createHmac("sha256", signingSecret).update(`v0:${timestamp}:${body}`).digest("hex")}`,
+    createHmac("sha256", secret).update(`${timestamp}:${body}`).digest("hex"),
     "utf8"
   );
   const provided = Buffer.from(signature, "utf8");

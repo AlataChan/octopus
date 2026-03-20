@@ -2,21 +2,27 @@ import { randomUUID } from "node:crypto";
 
 import type { EventBus, EventPayloadByType, WorkEvent } from "@octopus/observability";
 
-import type { GatewayClient } from "../gateway-client.js";
-import type { NotificationListener } from "../notification-listener.js";
-import type { PendingStore } from "../pending-store.js";
-import type { SlackConfig } from "../types.js";
+import type { GatewayClient } from "./gateway-client.js";
+import type { NotificationListener } from "./notification-listener.js";
+import type { PendingStore } from "./pending-store.js";
+import type { WebhookChatConfig } from "./types.js";
 
-export class SlackAdapter {
+export interface WebhookGoalPayload {
+  text?: string;
+  callbackUrl?: string;
+  channelId?: string;
+}
+
+export class WebhookAdapter {
   constructor(
-    private readonly _config: SlackConfig,
+    private readonly _config: WebhookChatConfig,
     private readonly gatewayClient: GatewayClient,
     private readonly _pendingStore: PendingStore,
     private readonly notificationListener: NotificationListener,
     private readonly eventBus?: EventBus
   ) {}
 
-  async handleSlashCommand(body: Record<string, string>): Promise<{ text: string }> {
+  async handleGoalSubmission(body: WebhookGoalPayload): Promise<{ text: string }> {
     const goalDescription = body.text?.trim() ?? "";
     if (goalDescription.length === 0) {
       return {
@@ -24,42 +30,42 @@ export class SlackAdapter {
       };
     }
 
-    this.emitChatEvent("chat.goal.received", body.channel_id ?? "unknown", {
-      platform: "slack",
-      channelId: body.channel_id ?? "unknown",
-      userId: body.user_id ?? "unknown",
+    const callbackUrl = body.callbackUrl?.trim();
+    if (!callbackUrl) {
+      return {
+        text: "callbackUrl is required."
+      };
+    }
+
+    this.emitChatEvent("chat.goal.received", body.channelId ?? "unknown", {
+      platform: "webhook",
+      channelId: body.channelId ?? "unknown",
+      userId: "webhook",
       goalDescription
     });
 
-    void this.processGoal(body, goalDescription);
-    return {
-      text: "Goal received. Submitting now."
-    };
+    try {
+      const sessionId = await this.processGoal(callbackUrl, body.channelId ?? "unknown", goalDescription);
+      return {
+        text: `Goal submitted. Session: ${sessionId}`
+      };
+    } catch (error) {
+      this.emitChatFailure(body.channelId ?? "unknown", "pending", error);
+      return {
+        text: `Goal submission failed: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
   }
 
-  private async processGoal(body: Record<string, string>, goalDescription: string): Promise<void> {
-    const responseUrl = body.response_url;
-    if (!responseUrl) {
-      return;
-    }
-
-    try {
-      const submission = await this.gatewayClient.submitGoal(goalDescription);
-      this.notificationListener.listen(
-        submission.sessionId,
-        responseUrl,
-        body.channel_id ?? "unknown",
-        goalDescription
-      );
-      await this.gatewayClient.postResponse(responseUrl, {
-        text: `Goal submitted. Session: ${submission.sessionId}`
-      });
-    } catch (error) {
-      await this.gatewayClient.postResponse(responseUrl, {
-        text: `Goal submission failed: ${error instanceof Error ? error.message : String(error)}`
-      });
-      this.emitChatFailure(body.channel_id ?? "unknown", "pending", error);
-    }
+  private async processGoal(callbackUrl: string, channelId: string, goalDescription: string): Promise<string> {
+    const submission = await this.gatewayClient.submitGoal(goalDescription);
+    await this.notificationListener.listen(
+      submission.sessionId,
+      callbackUrl,
+      channelId,
+      goalDescription
+    );
+    return submission.sessionId;
   }
 
   private emitChatEvent<T extends "chat.goal.received">(
@@ -95,7 +101,7 @@ export class SlackAdapter {
       type: "chat.notification.failed",
       sourceLayer: "chat",
       payload: {
-        platform: "slack",
+        platform: "webhook",
         channelId,
         sessionId,
         error: error instanceof Error ? error.message : String(error)

@@ -45,8 +45,8 @@ export class GatewayClient {
     return this.requestJsonWithRetry<GatewaySession>("GET", `/api/sessions/${encodeURIComponent(sessionId)}`);
   }
 
-  async postResponse(responseUrl: string, payload: { text: string; blocks?: unknown[] }): Promise<void> {
-    const response = await this.fetchImpl(responseUrl, {
+  async postCallback(callbackUrl: string, payload: object): Promise<void> {
+    const response = await this.fetchImpl(callbackUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -55,7 +55,7 @@ export class GatewayClient {
     });
 
     if (!response.ok) {
-      throw await buildHttpError(response, "Slack response post failed");
+      throw await buildHttpError(response, "Callback post failed");
     }
   }
 
@@ -110,10 +110,13 @@ function ensureTrailingSlash(value: string): string {
 }
 
 async function buildHttpError(response: { status: number; json(): Promise<unknown>; text(): Promise<string> }, fallback: string) {
-  const payload = await response.json().catch(async () => {
+  let payload: { error?: string } | string | null;
+  try {
+    payload = await response.json() as { error?: string } | string | null;
+  } catch {
     const text = await response.text().catch(() => "");
-    return text.length > 0 ? { error: text } : null;
-  }) as { error?: string } | string | null;
+    payload = text.length > 0 ? { error: text } : null;
+  }
 
   if (typeof payload === "string") {
     return new HttpStatusError(response.status, payload);

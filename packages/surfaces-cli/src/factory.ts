@@ -21,6 +21,7 @@ export interface LocalAppConfig {
   workspaceRoot: string;
   dataDir: string;
   runtime: EmbeddedRuntimeConfig;
+  configIssues?: string[];
   profile?: SecurityProfileName;
   policyFilePath?: string;
   gateway?: GatewayConfigSection;

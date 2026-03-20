@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatCompletionNotification } from "../slack/formatter.js";
+import { formatCompletionNotification } from "../formatter.js";
 
 describe("formatCompletionNotification", () => {
   it("formats a completion notification", () => {
@@ -15,12 +15,12 @@ describe("formatCompletionNotification", () => {
       "Clean up temp directory"
     );
 
-    expect(payload.text).toContain("Goal Complete");
-    expect(payload.blocks[0]?.text.text).toContain("Goal Complete");
-    expect(payload.blocks[1]?.text.text).toContain("session-1");
-    expect(payload.blocks[1]?.text.text).toContain("Clean up temp directory");
-    expect(payload.blocks[1]?.text.text).toContain("Artifacts: 2");
-    expect(payload.blocks[1]?.text.text).toContain("Duration: 1m 0s");
+    expect(payload.text).toBe("Goal Complete");
+    expect(payload.sessionId).toBe("session-1");
+    expect(payload.state).toBe("completed");
+    expect(payload.goalDescription).toBe("Clean up temp directory");
+    expect(payload.artifactCount).toBe(2);
+    expect(payload.duration).toBe("1m 0s");
   });
 
   it("formats a failure notification", () => {
@@ -36,8 +36,8 @@ describe("formatCompletionNotification", () => {
       "Deploy docs"
     );
 
-    expect(payload.text).toContain("Goal Failed");
-    expect(payload.blocks[0]?.text.text).toContain("Goal Failed");
-    expect(payload.blocks[1]?.text.text).toContain("Shell command failed");
+    expect(payload.text).toBe("Goal Failed");
+    expect(payload.state).toBe("failed");
+    expect(payload.error).toBe("Shell command failed");
   });
 });

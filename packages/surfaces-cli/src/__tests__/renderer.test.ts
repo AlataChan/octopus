@@ -24,9 +24,9 @@ describe("renderReplay", () => {
         type: "model.call",
         sourceLayer: "runtime",
         payload: {
-          provider: "anthropic",
-          model: "claude-sonnet-4-6",
-          endpoint: "https://api.anthropic.com/v1/messages",
+          provider: "openai-compatible",
+          model: "gpt-4o",
+          endpoint: "https://openrouter.ai/api/v1/chat/completions",
           durationMs: 20,
           success: true
         }
@@ -34,6 +34,6 @@ describe("renderReplay", () => {
     ];
 
     expect(renderReplay(events)).toContain("file.read README.md");
-    expect(renderReplay(events)).toContain("model.call anthropic/claude-sonnet-4-6");
+    expect(renderReplay(events)).toContain("model.call openai-compatible/gpt-4o");
   });
 });

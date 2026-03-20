@@ -15,13 +15,22 @@ export class HttpModelClient implements ModelClient {
       results: input.results
     });
 
-    const response =
-      input.config.provider === "anthropic"
-        ? await this.fetchAnthropic(input.config, endpoint, prompt)
-        : await this.fetchOpenAiCompatible(input.config, endpoint, prompt);
+    const response = await this.fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${input.config.apiKey}`
+      },
+      body: JSON.stringify({
+        model: input.config.model,
+        max_tokens: input.config.maxTokens,
+        temperature: input.config.temperature,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
 
     const body = await readResponseBody(response);
-    const telemetry = createTelemetry(response, endpoint, startedAt, body, input.config);
+    const telemetry = createTelemetry(response, endpoint, startedAt, body);
     if (!response.ok) {
       const message = createProviderErrorMessage(response.status, body);
       throw new ModelTurnError(message, {
@@ -30,7 +39,7 @@ export class HttpModelClient implements ModelClient {
         error: message
       });
     }
-    const text = extractResponseText(input.config, body);
+    const text = extractResponseText(body);
     try {
       const parsed = parseRuntimeResponse(text);
 
@@ -47,47 +56,10 @@ export class HttpModelClient implements ModelClient {
       });
     }
   }
-
-  private fetchAnthropic(config: EmbeddedRuntimeConfig, endpoint: string, prompt: string): Promise<Response> {
-    return this.fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: config.maxTokens,
-        temperature: config.temperature,
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-  }
-
-  private fetchOpenAiCompatible(config: EmbeddedRuntimeConfig, endpoint: string, prompt: string): Promise<Response> {
-    return this.fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: config.maxTokens,
-        temperature: config.temperature,
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-  }
 }
 
-function resolveEndpoint(config: EmbeddedRuntimeConfig): string {
-  if (config.provider === "anthropic") {
-    return config.baseUrl ?? "https://api.anthropic.com/v1/messages";
-  }
-
-  const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
+export function resolveEndpoint(config: EmbeddedRuntimeConfig): string {
+  const baseUrl = config.baseUrl ?? "https://openrouter.ai/api/v1";
   return baseUrl.endsWith("/chat/completions") ? baseUrl : `${baseUrl.replace(/\/$/, "")}/chat/completions`;
 }
 
@@ -95,8 +67,7 @@ function createTelemetry(
   response: Response,
   endpoint: string,
   startedAt: number,
-  body: any,
-  config: EmbeddedRuntimeConfig
+  body: any
 ): ModelTelemetry {
   return {
     endpoint,
@@ -104,7 +75,8 @@ function createTelemetry(
     requestId: response.headers.get("request-id") ?? response.headers.get("x-request-id") ?? undefined,
     statusCode: response.status,
     success: response.ok,
-    ...extractUsage(config, body)
+    inputTokens: body.usage?.prompt_tokens,
+    outputTokens: body.usage?.completion_tokens
   };
 }
 
@@ -121,36 +93,12 @@ async function readResponseBody(response: Response): Promise<any> {
   }
 }
 
-function extractResponseText(config: EmbeddedRuntimeConfig, body: any): string {
-  if (config.provider === "anthropic") {
-    const textBlock = (body.content as Array<{ type: string; text?: string }>).find(
-      (item) => item.type === "text" && typeof item.text === "string"
-    );
-    if (!textBlock?.text) {
-      throw new Error("Anthropic response did not include a text block.");
-    }
-    return textBlock.text;
-  }
-
+function extractResponseText(body: any): string {
   const content = body.choices?.[0]?.message?.content;
   if (typeof content !== "string") {
     throw new Error("OpenAI-compatible response did not include message content.");
   }
   return content;
-}
-
-function extractUsage(config: EmbeddedRuntimeConfig, body: any): Pick<ModelTelemetry, "inputTokens" | "outputTokens"> {
-  if (config.provider === "anthropic") {
-    return {
-      inputTokens: body.usage?.input_tokens,
-      outputTokens: body.usage?.output_tokens
-    };
-  }
-
-  return {
-    inputTokens: body.usage?.prompt_tokens,
-    outputTokens: body.usage?.completion_tokens
-  };
 }
 
 function createProviderErrorMessage(statusCode: number, body: any): string {

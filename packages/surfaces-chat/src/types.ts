@@ -1,16 +1,16 @@
-export interface SlackConfig {
+export interface WebhookChatConfig {
   signingSecret: string;
-  botToken?: string;
   gatewayUrl: string;
   gatewayApiKey: string;
   listenPort: number;
   listenHost?: string;
   pendingStorePath?: string;
+  maxPollDurationMs?: number;
 }
 
 export interface ChatConfig {
-  platform: "slack";
-  slack?: SlackConfig;
+  platform: "webhook";
+  webhook?: WebhookChatConfig;
 }
 
 export type ChatNotificationType = "ack" | "completion" | "failure";
@@ -25,26 +25,20 @@ export interface ChatNotification {
 
 export interface PendingNotification {
   sessionId: string;
-  responseUrl: string;
+  callbackUrl: string;
   channelId: string;
   goalDescription: string;
   submittedAt: string;
 }
 
-export interface SlackTextObject {
-  type: "plain_text" | "mrkdwn";
+export interface NotificationPayload {
   text: string;
-  emoji?: boolean;
-}
-
-export interface SlackBlock {
-  type: "header" | "section";
-  text: SlackTextObject;
-}
-
-export interface SlackBlocks {
-  text: string;
-  blocks: SlackBlock[];
+  sessionId: string;
+  state: "completed" | "failed";
+  goalDescription: string;
+  artifactCount: number;
+  duration: string;
+  error?: string;
 }
 
 export interface GatewayClientConfig {

@@ -21,8 +21,8 @@ describe("createLocalWorkEngine", () => {
       workspaceRoot: process.cwd(),
       dataDir: `${process.cwd()}/.octopus`,
       runtime: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible",
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -33,7 +33,7 @@ describe("createLocalWorkEngine", () => {
           return {
             response: { kind: "completion", evidence: "done" },
             telemetry: {
-              endpoint: "https://api.anthropic.com/v1/messages",
+              endpoint: "https://openrouter.ai/api/v1/chat/completions",
               durationMs: 10,
               success: true
             }
@@ -55,8 +55,8 @@ describe("createLocalWorkEngine", () => {
       workspaceRoot,
       dataDir: join(workspaceRoot, ".octopus"),
       runtime: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible",
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -68,7 +68,7 @@ describe("createLocalWorkEngine", () => {
           return {
             response: { kind: "completion", evidence: "done" },
             telemetry: {
-              endpoint: "https://api.anthropic.com/v1/messages",
+              endpoint: "https://openrouter.ai/api/v1/chat/completions",
               durationMs: 10,
               success: true
             }
@@ -104,8 +104,8 @@ describe("createLocalWorkEngine", () => {
       workspaceRoot,
       dataDir: join(workspaceRoot, ".octopus"),
       runtime: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible",
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -117,7 +117,7 @@ describe("createLocalWorkEngine", () => {
           return {
             response: { kind: "completion", evidence: "done" },
             telemetry: {
-              endpoint: "https://api.anthropic.com/v1/messages",
+              endpoint: "https://openrouter.ai/api/v1/chat/completions",
               durationMs: 10,
               success: true
             }
@@ -163,8 +163,8 @@ describe("createLocalWorkEngine", () => {
         workspaceRoot: process.cwd(),
         dataDir: `${process.cwd()}/.octopus`,
         runtime: {
-          provider: "anthropic",
-          model: "claude-sonnet-4-6",
+          provider: "openai-compatible",
+          model: "gpt-4o",
           apiKey: "test-key",
           maxTokens: 1_024,
           temperature: 0,
@@ -190,7 +190,7 @@ describe("createLocalWorkEngine", () => {
             return {
               response: { kind: "completion", evidence: "done" },
               telemetry: {
-                endpoint: "https://api.anthropic.com/v1/messages",
+                endpoint: "https://openrouter.ai/api/v1/chat/completions",
                 durationMs: 10,
                 success: true
               }

@@ -19,7 +19,7 @@ Typical goals:
 ```
 +--------------------------------------------------+
 |              Surfaces Layer                       |
-|  CLI | Web UI | Chat (Slack)                      |
+|  CLI | Web UI | Chat (Webhook / 长链接回调)           |
 +--------------------------------------------------+
                       |
 +--------------------------------------------------+
@@ -40,7 +40,7 @@ Typical goals:
                       |
 +--------------------------------------------------+
 |             Agent Runtime                         |
-|  embedded (Claude API) | remote (WebSocket)       |
+|  OpenAI-compatible (e.g. OpenRouter) | remote      |
 +--------------------------------------------------+
                       |
 +--------------------------------------------------+
@@ -65,14 +65,14 @@ Typical goals:
 | `state-store` | Session + artifact persistence, snapshot/restore |
 | `security` | safe-local / vibe / platform security profiles |
 | `work-core` | Work loop engine, verification, completion |
-| `runtime-embedded` | Claude API runtime adapter |
-| `runtime-remote` | WebSocket-based remote runtime adapter |
+| `runtime-embedded` | OpenAI-compatible runtime adapter (e.g. OpenRouter) |
+| `runtime-remote` | Remote runtime adapter |
 | `automation` | Cron scheduler, file watcher, event injection |
 | `gateway` | HTTP/WebSocket server, auth, event streaming |
 | `adapter-mcp` | Optional MCP compatibility layer |
 | `surfaces-cli` | CLI: run / status / sessions / replay / mcp / remote |
 | `surfaces-web` | Preact browser operator dashboard |
-| `surfaces-chat` | Slack adapter (goal intake + completion notification) |
+| `surfaces-chat` | Chat adapter via Webhook / 长链接回调 (goal intake + completion notification) |
 
 ## Quick Start
 
@@ -99,8 +99,9 @@ Workspace configuration lives in `.octopus/config.json`:
 ```json
 {
   "runtime": {
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514",
+    "provider": "openai-compatible",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "your-model-id",
     "apiKey": "sk-..."
   },
   "mcp": {

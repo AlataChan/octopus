@@ -213,8 +213,8 @@ function createCliConfig(overrides: Partial<LocalAppConfig> = {}): LocalAppConfi
     workspaceRoot: "/workspace",
     dataDir: "/workspace/.octopus",
     runtime: {
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      provider: "openai-compatible",
+      model: "gpt-4o",
       apiKey: "test-key",
       maxTokens: 1_024,
       temperature: 0,

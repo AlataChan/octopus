@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import type { EventBus, EventPayloadByType, WorkEvent } from "@octopus/observability";
 
-import { formatCompletionNotification } from "./slack/formatter.js";
-import { HttpStatusError, type GatewayClient } from "./gateway-client.js";
+import { formatCompletionNotification } from "./formatter.js";
+import type { GatewayClient } from "./gateway-client.js";
 import type { PendingStore } from "./pending-store.js";
-import type { PendingNotification, SlackConfig } from "./types.js";
+import type { PendingNotification, WebhookChatConfig } from "./types.js";
+
+const DEFAULT_MAX_POLL_DURATION_MS = 30 * 60 * 1_000; // 30 minutes
 
 export class NotificationListener {
   private readonly pollers = new Map<string, NodeJS.Timeout>();
@@ -13,25 +15,40 @@ export class NotificationListener {
   constructor(
     private readonly gatewayClient: GatewayClient,
     private readonly pendingStore: PendingStore,
-    private readonly slackConfig: SlackConfig,
+    private readonly chatConfig: WebhookChatConfig,
     private readonly eventBus?: EventBus
   ) {}
 
-  listen(sessionId: string, responseUrl: string, channelId: string, goalDescription: string): void {
+  async listen(sessionId: string, callbackUrl: string, channelId: string, goalDescription: string): Promise<void> {
     const pending: PendingNotification = {
       sessionId,
-      responseUrl,
+      callbackUrl,
       channelId,
       goalDescription,
       submittedAt: new Date().toISOString()
     };
 
-    this.pendingStore.save(pending);
+    await this.pendingStore.save(pending);
     this.stop(sessionId);
+
+    const maxDuration = this.chatConfig.maxPollDurationMs ?? DEFAULT_MAX_POLL_DURATION_MS;
+    const deadline = Date.now() + maxDuration;
+
     const timer = setInterval(() => {
+      if (Date.now() > deadline) {
+        this.stop(sessionId);
+        this.emitChatEvent("chat.notification.failed", sessionId, {
+          platform: "webhook",
+          channelId: pending.channelId,
+          sessionId: pending.sessionId,
+          error: "Polling timed out"
+        });
+        return;
+      }
+
       void this.tick(pending).catch((error) => {
         this.emitChatEvent("chat.notification.failed", pending.sessionId, {
-          platform: "slack",
+          platform: "webhook",
           channelId: pending.channelId,
           sessionId: pending.sessionId,
           error: error instanceof Error ? error.message : String(error)
@@ -40,9 +57,10 @@ export class NotificationListener {
     }, 10_000);
     timer.unref?.();
     this.pollers.set(sessionId, timer);
+
     void this.tick(pending).catch((error) => {
       this.emitChatEvent("chat.notification.failed", pending.sessionId, {
-        platform: "slack",
+        platform: "webhook",
         channelId: pending.channelId,
         sessionId: pending.sessionId,
         error: error instanceof Error ? error.message : String(error)
@@ -65,18 +83,11 @@ export class NotificationListener {
     }
 
     const payload = formatCompletionNotification(session, pending.goalDescription);
-    try {
-      await this.gatewayClient.postResponse(pending.responseUrl, payload);
-    } catch (error) {
-      if (!(error instanceof HttpStatusError) || (error.status !== 404 && error.status !== 410) || !this.slackConfig.botToken) {
-        throw error;
-      }
-      await this.postFallbackMessage(pending.channelId, payload);
-    }
-    this.pendingStore.remove(pending.sessionId);
+    await this.gatewayClient.postCallback(pending.callbackUrl, payload);
+    await this.pendingStore.remove(pending.sessionId);
     this.stop(pending.sessionId);
     this.emitChatEvent("chat.notification.sent", pending.sessionId, {
-      platform: "slack",
+      platform: "webhook",
       channelId: pending.channelId,
       sessionId: pending.sessionId,
       notificationType: session.state === "completed" ? "completion" : "failure"
@@ -101,28 +112,5 @@ export class NotificationListener {
       sourceLayer: "chat",
       payload
     } as Extract<WorkEvent, { type: T }>);
-  }
-
-  private async postFallbackMessage(channelId: string, payload: { text: string; blocks: unknown[] }): Promise<void> {
-    if (!this.slackConfig.botToken) {
-      throw new Error("Slack bot token is required for fallback notifications.");
-    }
-
-    const response = await fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.slackConfig.botToken}`
-      },
-      body: JSON.stringify({
-        channel: channelId,
-        text: payload.text,
-        blocks: payload.blocks
-      })
-    });
-
-    if (!response.ok) {
-      throw new HttpStatusError(response.status, "Slack bot token fallback failed");
-    }
   }
 }

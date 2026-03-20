@@ -1,5 +1,5 @@
 export interface EmbeddedRuntimeConfig {
-  provider: "anthropic" | "openai-compatible";
+  provider: "openai-compatible";
   model: string;
   apiKey: string;
   maxTokens: number;

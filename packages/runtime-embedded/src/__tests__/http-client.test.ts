@@ -6,19 +6,20 @@ import { createWorkGoal, createWorkSession } from "@octopus/work-contracts";
 import { HttpModelClient } from "../http-client.js";
 
 describe("HttpModelClient", () => {
-  it("calls Anthropic-compatible endpoints and returns parsed runtime responses", async () => {
+  it("calls OpenAI-compatible endpoints and returns parsed runtime responses", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
-          content: [
+          choices: [
             {
-              type: "text",
-              text: "{\"kind\":\"completion\",\"evidence\":\"done\"}"
+              message: {
+                content: "{\"kind\":\"completion\",\"evidence\":\"done\"}"
+              }
             }
           ],
           usage: {
-            input_tokens: 20,
-            output_tokens: 10
+            prompt_tokens: 20,
+            completion_tokens: 10
           }
         }),
         {
@@ -36,8 +37,8 @@ describe("HttpModelClient", () => {
       session: createWorkSession(createWorkGoal({ description: "Read docs" })),
       results: [],
       config: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible",
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -58,7 +59,7 @@ describe("HttpModelClient", () => {
         JSON.stringify({
           error: {
             type: "invalid_request_error",
-            message: "invalid x-api-key"
+            message: "invalid api key"
           }
         }),
         {
@@ -78,14 +79,14 @@ describe("HttpModelClient", () => {
         session: createWorkSession(createWorkGoal({ description: "Read docs" })),
         results: [],
         config: {
-          provider: "anthropic",
-          model: "claude-sonnet-4-6",
+          provider: "openai-compatible",
+          model: "gpt-4o",
           apiKey: "bad-key",
           maxTokens: 1_024,
           temperature: 0,
           allowModelApiCall: true
         }
       })
-    ).rejects.toThrow(/401.*invalid x-api-key/i);
+    ).rejects.toThrow(/401.*invalid api key/i);
   });
 });

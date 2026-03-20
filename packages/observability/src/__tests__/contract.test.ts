@@ -27,9 +27,9 @@ describe("observability contract", () => {
                   timedOut: false
                 }
               : {
-                  provider: "anthropic",
-                  model: "claude-sonnet-4-6",
-                  endpoint: "https://api.anthropic.com/v1/messages",
+                  provider: "openai-compatible",
+                  model: "gpt-4o",
+                  endpoint: "https://openrouter.ai/api/v1/chat/completions",
                   inputTokens: 10,
                   outputTokens: 5,
                   durationMs: 18,

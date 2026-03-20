@@ -4,6 +4,13 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@octopus/work-packs", () => ({
+  loadBuiltinPacks: vi.fn(() => []),
+  loadCustomPacks: vi.fn(async () => []),
+  resolveGoal: vi.fn(() => ({ id: "goal-1", description: "Resolved", constraints: [], successCriteria: [], createdAt: new Date() })),
+  validateParams: vi.fn(),
+}));
+
 vi.mock("@octopus/eval-runner", () => ({
   loadEvalSuite: vi.fn(async () => []),
   EvalRunner: vi.fn().mockImplementation(() => ({ runSuite: vi.fn(async () => []) })),

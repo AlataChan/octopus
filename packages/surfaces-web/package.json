@@ -12,6 +12,7 @@
   "dependencies": {
     "@octopus/observability": "workspace:*",
     "@octopus/work-contracts": "workspace:*",
+    "@octopus/work-packs": "workspace:*",
     "preact": "^10.27.2"
   },
   "devDependencies": {

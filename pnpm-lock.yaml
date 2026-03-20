@@ -227,6 +227,9 @@ importers:
       '@octopus/work-core':
         specifier: workspace:*
         version: link:../work-core
+      '@octopus/work-packs':
+        specifier: workspace:*
+        version: link:../work-packs
 
   packages/surfaces-web:
     dependencies:
@@ -236,6 +239,9 @@ importers:
       '@octopus/work-contracts':
         specifier: workspace:*
         version: link:../work-contracts
+      '@octopus/work-packs':
+        specifier: workspace:*
+        version: link:../work-packs
       preact:
         specifier: ^10.27.2
         version: 10.29.0
@@ -278,6 +284,12 @@ importers:
       '@octopus/state-store':
         specifier: workspace:*
         version: link:../state-store
+      '@octopus/work-contracts':
+        specifier: workspace:*
+        version: link:../work-contracts
+
+  packages/work-packs:
+    dependencies:
       '@octopus/work-contracts':
         specifier: workspace:*
         version: link:../work-contracts

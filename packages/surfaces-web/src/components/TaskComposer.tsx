@@ -1,5 +1,8 @@
 import { useState } from "preact/hooks";
 
+import { loadBuiltinPacks, resolveGoal, validateParams } from "@octopus/work-packs";
+import type { WorkPack } from "@octopus/work-packs";
+
 import type { GoalSubmissionInput } from "../api/client.js";
 import { useI18n } from "../i18n/useI18n.js";
 
@@ -14,21 +17,49 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
   const { t } = useI18n();
   const [namedGoalId, setNamedGoalId] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedPack, setSelectedPack] = useState<WorkPack | null>(null);
+  const [packParams, setPackParams] = useState<Record<string, string>>({});
+  const packs = loadBuiltinPacks();
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
-    const nextDescription = description.trim();
-    if (!nextDescription) {
+
+    let finalDescription = description.trim();
+    let finalNamedGoalId = namedGoalId.trim();
+
+    if (selectedPack) {
+      try {
+        validateParams(selectedPack, packParams);
+      } catch (error) {
+        return; // required params missing — button should already be disabled
+      }
+      const goal = resolveGoal(selectedPack, packParams);
+      // Fold constraints + successCriteria into description for web submission
+      // (gateway API only accepts description + namedGoalId)
+      const parts = [goal.description];
+      if (goal.constraints.length > 0) {
+        parts.push("\n\nConstraints:\n" + goal.constraints.map((c) => `- ${c}`).join("\n"));
+      }
+      if (goal.successCriteria.length > 0) {
+        parts.push("\n\nSuccess Criteria:\n" + goal.successCriteria.map((c) => `- ${c}`).join("\n"));
+      }
+      finalDescription = parts.join("");
+      finalNamedGoalId = selectedPack.id;
+    }
+
+    if (!finalDescription) {
       return;
     }
 
     await onSubmit({
-      description: nextDescription,
-      ...(namedGoalId.trim().length > 0 ? { namedGoalId: namedGoalId.trim() } : {})
+      description: finalDescription,
+      ...(finalNamedGoalId.length > 0 ? { namedGoalId: finalNamedGoalId } : {})
     });
 
     setNamedGoalId("");
     setDescription("");
+    setSelectedPack(null);
+    setPackParams({});
   };
 
   return (
@@ -48,6 +79,54 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
       <p class="task-composer-guidance">{t("taskComposer.guidance")}</p>
 
       <form class="task-composer-form" onSubmit={handleSubmit}>
+        <div class="composer-field">
+          <label>{t("taskComposer.template")}</label>
+          <select
+            value={selectedPack?.id ?? ""}
+            onChange={(e) => {
+              const packId = (e.target as HTMLSelectElement).value;
+              const pack = packs.find((p) => p.id === packId) ?? null;
+              setSelectedPack(pack);
+              setPackParams({});
+              if (pack) {
+                setDescription(pack.goalTemplate);
+                setNamedGoalId(pack.id);
+              }
+            }}
+          >
+            <option value="">{t("taskComposer.templateNone")}</option>
+            {packs.map((pack) => (
+              <option key={pack.id} value={pack.id}>
+                {pack.name} [{pack.category}]
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedPack && selectedPack.params.length > 0 ? (
+          <div class="composer-params">
+            {selectedPack.params.map((param) => (
+              <div key={param.name} class="composer-field">
+                <label>
+                  {param.description}
+                  {param.required ? " *" : ""}
+                </label>
+                <input
+                  type="text"
+                  value={packParams[param.name] ?? param.default ?? ""}
+                  placeholder={param.name}
+                  onInput={(e) => {
+                    setPackParams((prev) => ({
+                      ...prev,
+                      [param.name]: (e.target as HTMLInputElement).value
+                    }));
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <label class="field">
           <span>{t("taskComposer.taskTitle")}</span>
           <input
@@ -78,7 +157,7 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
         </div>
 
         <div class="task-composer-actions">
-          <button type="submit" class="button-primary" disabled={busy || description.trim().length === 0}>
+          <button type="submit" class="button-primary" disabled={busy || description.trim().length === 0 || (selectedPack !== null && selectedPack.params.some((p) => p.required && !packParams[p.name]?.trim() && p.default === undefined))}>
             {busy ? t("taskComposer.submitting") : t("taskComposer.submit")}
           </button>
         </div>

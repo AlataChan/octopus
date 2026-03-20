@@ -27,6 +27,7 @@ import { HttpModelClient, type ModelClient } from "@octopus/runtime-embedded";
 import type { SecurityProfileName } from "@octopus/security";
 import { createWorkGoal } from "@octopus/work-contracts";
 import { EvalRunner, buildReport, listReports, loadEvalSuite, loadReport, saveReport } from "@octopus/eval-runner";
+import { loadBuiltinPacks, loadCustomPacks, resolveGoal, validateParams } from "@octopus/work-packs";
 
 import {
   createGatewayApp,
@@ -322,6 +323,70 @@ export function buildCli(
         return;
       }
       process.stdout.write(`${JSON.stringify(reports, null, 2)}\n`);
+    });
+
+  const packCommand = program.command("pack");
+
+  packCommand
+    .command("list")
+    .action(async () => {
+      const config = configFactory();
+      const builtin = loadBuiltinPacks();
+      const custom = await loadCustomPacks(join(config.dataDir, "packs"));
+      const all = [...builtin, ...custom];
+      for (const pack of all) {
+        const paramStr = pack.params.length > 0
+          ? ` (${pack.params.map((p) => p.required ? p.name : `${p.name}?`).join(", ")})`
+          : "";
+        process.stdout.write(`  [${pack.category}] ${pack.id}${paramStr} — ${pack.description}\n`);
+      }
+      process.stdout.write(`\n${all.length} pack(s) available.\n`);
+    });
+
+  packCommand
+    .command("info")
+    .argument("<pack-id>")
+    .action(async (packId: string) => {
+      const config = configFactory();
+      const builtin = loadBuiltinPacks();
+      const custom = await loadCustomPacks(join(config.dataDir, "packs"));
+      const pack = [...builtin, ...custom].find((p) => p.id === packId);
+      if (!pack) {
+        throw new Error(`Unknown pack: ${packId}. Run 'octopus pack list' to see available packs.`);
+      }
+      process.stdout.write(`${JSON.stringify(pack, null, 2)}\n`);
+    });
+
+  packCommand
+    .command("run")
+    .argument("<pack-id>")
+    .option("--param <params...>", "Parameters as key=value pairs")
+    .option("--profile <profile>", "security profile: safe-local, vibe, or platform")
+    .option("--policy-file <path>", "platform policy file (implies --profile platform)")
+    .action(async (packId: string, options: { param?: string[]; profile?: string; policyFile?: string }) => {
+      const config = applyCommandOverrides(configFactory(), {
+        profile: options.profile,
+        policyFile: options.policyFile
+      });
+      assertValidConfig(config);
+
+      const builtin = loadBuiltinPacks();
+      const custom = await loadCustomPacks(join(config.dataDir, "packs"));
+      const pack = [...builtin, ...custom].find((p) => p.id === packId);
+      if (!pack) {
+        throw new Error(`Unknown pack: ${packId}. Run 'octopus pack list' to see available packs.`);
+      }
+
+      const params = parsePackParams(options.param ?? []);
+      validateParams(pack, params);
+      const goal = resolveGoal(pack, params);
+
+      const app = await resolvedDependencies.createLocalWorkEngine(config);
+      const session = await app.engine.executeGoal(goal, {
+        workspaceRoot: config.workspaceRoot
+      });
+      await app.flushTraces();
+      process.stdout.write(`${session.state}\n`);
     });
 
   const remoteCommand = program.command("remote");
@@ -1181,6 +1246,18 @@ function parseProfileOption(value: string): SecurityProfileName {
   }
 
   return profile;
+}
+
+function parsePackParams(rawParams: string[]): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const raw of rawParams) {
+    const eqIndex = raw.indexOf("=");
+    if (eqIndex <= 0) {
+      throw new Error(`Invalid parameter format: "${raw}". Use key=value.`);
+    }
+    params[raw.slice(0, eqIndex)] = raw.slice(eqIndex + 1);
+  }
+  return params;
 }
 
 async function connectConfiguredMcpServers(

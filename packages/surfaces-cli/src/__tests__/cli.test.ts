@@ -127,6 +127,16 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@octopus/work-packs", () => ({
+  loadBuiltinPacks: vi.fn(() => [
+    { id: "repo-health-check", name: "Repo Health Check", category: "dev", description: "Check repo", goalTemplate: "Check", constraintTemplates: [], successCriteriaTemplates: [], params: [] },
+    { id: "weekly-report", name: "Weekly Report", category: "report", description: "Generate report", goalTemplate: "Report from {{from}} to {{to}}", constraintTemplates: [], successCriteriaTemplates: [], params: [{ name: "from", description: "Start", required: true }, { name: "to", description: "End", required: true }] },
+  ]),
+  loadCustomPacks: vi.fn(async () => []),
+  resolveGoal: vi.fn(() => ({ id: "goal-1", description: "Resolved", constraints: [], successCriteria: [], createdAt: new Date() })),
+  validateParams: vi.fn(),
+}));
+
 vi.mock("@octopus/eval-runner", () => ({
   loadEvalSuite: mocks.mockLoadEvalSuite,
   EvalRunner: mocks.mockEvalRunner,
@@ -842,6 +852,43 @@ describe("buildCli", () => {
       await program.parseAsync(["checkpoints", "session-1"], { from: "user" });
       expect(stdout).toHaveBeenCalledWith(expect.stringContaining("snap-1"));
       expect(stdout).toHaveBeenCalledWith(expect.stringContaining("snap-2"));
+      stdout.mockRestore();
+    });
+  });
+
+  describe("pack commands", () => {
+    const configFactory = () => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      }
+    });
+
+    it("pack list outputs available packs", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["pack", "list"], { from: "user" });
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("repo-health-check"));
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("weekly-report"));
+      stdout.mockRestore();
+    });
+
+    it("pack run calls engine with resolved goal", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["pack", "run", "repo-health-check"], { from: "user" });
+      expect(mocks.executeGoal).toHaveBeenCalled();
       stdout.mockRestore();
     });
   });

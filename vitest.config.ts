@@ -19,7 +19,8 @@ export default defineConfig({
       "@octopus/surfaces-chat": resolve("packages/surfaces-chat/src/index.ts"),
       "@octopus/surfaces-cli": resolve("packages/surfaces-cli/src/index.ts"),
       "@octopus/gateway": resolve("packages/gateway/src/index.ts"),
-      "@octopus/eval-runner": resolve("packages/eval-runner/src/index.ts")
+      "@octopus/eval-runner": resolve("packages/eval-runner/src/index.ts"),
+      "@octopus/work-packs": resolve("packages/work-packs/src/index.ts")
     }
   },
   test: {
@@ -120,6 +121,12 @@ export default defineConfig({
         test: {
           name: "eval-runner",
           include: ["packages/eval-runner/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "work-packs",
+          include: ["packages/work-packs/src/**/*.test.ts"]
         }
       }
     ]

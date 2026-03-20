@@ -89,6 +89,22 @@ const mocks = vi.hoisted(() => {
     }) as never
   );
 
+  const mockLoadEvalSuite = vi.fn(async () => [] as any[]);
+  const mockEvalRunner = vi.fn().mockImplementation(() => ({
+    runSuite: vi.fn(async () => []),
+  }));
+  const mockBuildReport = vi.fn(() => ({
+    id: "run-test",
+    suite: "./evals",
+    startedAt: "2026-03-20T00:00:00.000Z",
+    completedAt: "2026-03-20T00:01:00.000Z",
+    results: [],
+    summary: { total: 0, passed: 0, failed: 0, passRate: 0 },
+  }));
+  const mockSaveReport = vi.fn(async () => {});
+  const mockLoadReport = vi.fn(async () => null as any);
+  const mockListReports = vi.fn(async () => [] as any[]);
+
   return {
     executeGoal,
     resumeBlockedSession,
@@ -101,9 +117,24 @@ const mocks = vi.hoisted(() => {
     createMcpServerManager,
     startAll,
     stopAll,
-    getAllTools
+    getAllTools,
+    mockLoadEvalSuite,
+    mockEvalRunner,
+    mockBuildReport,
+    mockSaveReport,
+    mockLoadReport,
+    mockListReports
   };
 });
+
+vi.mock("@octopus/eval-runner", () => ({
+  loadEvalSuite: mocks.mockLoadEvalSuite,
+  EvalRunner: mocks.mockEvalRunner,
+  buildReport: mocks.mockBuildReport,
+  saveReport: mocks.mockSaveReport,
+  loadReport: mocks.mockLoadReport,
+  listReports: mocks.mockListReports,
+}));
 
 vi.mock("../factory.js", () => ({
   createLocalWorkEngine: mocks.createLocalWorkEngine,
@@ -126,6 +157,12 @@ afterEach(() => {
   mocks.startAll.mockClear();
   mocks.stopAll.mockClear();
   mocks.getAllTools.mockClear();
+  mocks.mockLoadEvalSuite.mockClear();
+  mocks.mockEvalRunner.mockClear();
+  mocks.mockBuildReport.mockClear();
+  mocks.mockSaveReport.mockClear();
+  mocks.mockLoadReport.mockClear();
+  mocks.mockListReports.mockClear();
 });
 
 afterEach(async () => {
@@ -805,6 +842,66 @@ describe("buildCli", () => {
       await program.parseAsync(["checkpoints", "session-1"], { from: "user" });
       expect(stdout).toHaveBeenCalledWith(expect.stringContaining("snap-1"));
       expect(stdout).toHaveBeenCalledWith(expect.stringContaining("snap-2"));
+      stdout.mockRestore();
+    });
+  });
+
+  describe("eval commands", () => {
+    const configFactory = () => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      }
+    });
+
+    it("eval run outputs summary when suite has cases", async () => {
+      mocks.mockLoadEvalSuite.mockResolvedValueOnce([
+        { id: "c1", description: "Case 1", goal: { description: "test" }, assertions: [{ type: "session-completed" }] },
+      ]);
+      mocks.mockEvalRunner.mockImplementationOnce(() => ({
+        runSuite: vi.fn(async () => [{ caseId: "c1", description: "Case 1", passed: true, assertions: [], sessionId: "s1", durationMs: 50 }]),
+      }));
+      mocks.mockBuildReport.mockReturnValueOnce({
+        id: "run-test", suite: "./evals", startedAt: "2026-03-20T00:00:00.000Z", completedAt: "2026-03-20T00:01:00.000Z", results: [], summary: { total: 1, passed: 1, failed: 0, passRate: 1 },
+      });
+
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["eval", "run", "--suite", ".octopus/evals"], { from: "user" });
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("1/1 passed"));
+      stdout.mockRestore();
+    });
+
+    it("eval run outputs message when no cases found", async () => {
+      mocks.mockLoadEvalSuite.mockResolvedValueOnce([]);
+
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["eval", "run"], { from: "user" });
+      expect(stdout).toHaveBeenCalledWith("No eval cases found.\n");
+      stdout.mockRestore();
+    });
+
+    it("eval list outputs reports", async () => {
+      mocks.mockListReports.mockResolvedValueOnce([
+        { id: "run-1", suite: "./evals", passRate: 1, completedAt: "2026-03-20T00:00:00Z" },
+      ]);
+
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["eval", "list"], { from: "user" });
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("run-1"));
       stdout.mockRestore();
     });
   });

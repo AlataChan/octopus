@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -26,6 +26,7 @@ import { TraceReader } from "@octopus/observability";
 import { HttpModelClient, type ModelClient } from "@octopus/runtime-embedded";
 import type { SecurityProfileName } from "@octopus/security";
 import { createWorkGoal } from "@octopus/work-contracts";
+import { EvalRunner, buildReport, listReports, loadEvalSuite, loadReport, saveReport } from "@octopus/eval-runner";
 
 import {
   createGatewayApp,
@@ -252,6 +253,74 @@ export function buildCli(
       });
       await app.flushTraces();
       process.stdout.write(`${session.state}\n`);
+    });
+
+  const evalCommand = program.command("eval");
+
+  evalCommand
+    .command("run")
+    .option("--suite <path>", "Path to eval suite directory", ".octopus/evals")
+    .option("--profile <profile>", "security profile", "vibe")
+    .action(async (options: { suite: string; profile?: string }) => {
+      const config = configFactory();
+      const suitePath = resolve(config.workspaceRoot, options.suite);
+      const cases = await loadEvalSuite(suitePath);
+      if (cases.length === 0) {
+        process.stdout.write("No eval cases found.\n");
+        return;
+      }
+
+      const runner = new EvalRunner({
+        createApp: async ({ workspaceRoot, profile }) => {
+          const appConfig = {
+            ...config,
+            workspaceRoot,
+            profile: profile as import("@octopus/security").SecurityProfileName,
+          };
+          return resolvedDependencies.createLocalWorkEngine(appConfig);
+        },
+      });
+
+      process.stdout.write(`Running ${cases.length} eval case(s)...\n`);
+      const results = await runner.runSuite(cases, { defaultProfile: options.profile });
+      const report = buildReport(options.suite, results);
+      await saveReport(config.dataDir, report);
+
+      for (const result of results) {
+        const icon = result.passed ? "PASS" : "FAIL";
+        process.stdout.write(`  [${icon}] ${result.caseId}: ${result.description} (${result.durationMs}ms)\n`);
+        if (result.error) {
+          process.stdout.write(`         Error: ${result.error}\n`);
+        }
+      }
+      const pct = (report.summary.passRate * 100).toFixed(0);
+      process.stdout.write(`\n${report.summary.passed}/${report.summary.total} passed (${pct}%)\n`);
+      process.stdout.write(`Report saved: ${report.id}\n`);
+    });
+
+  evalCommand
+    .command("report")
+    .argument("[run-id]")
+    .action(async (runId?: string) => {
+      const config = configFactory();
+      const report = await loadReport(config.dataDir, runId);
+      if (!report) {
+        process.stdout.write("No eval reports found.\n");
+        return;
+      }
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    });
+
+  evalCommand
+    .command("list")
+    .action(async () => {
+      const config = configFactory();
+      const reports = await listReports(config.dataDir);
+      if (reports.length === 0) {
+        process.stdout.write("No eval reports found.\n");
+        return;
+      }
+      process.stdout.write(`${JSON.stringify(reports, null, 2)}\n`);
     });
 
   const remoteCommand = program.command("remote");

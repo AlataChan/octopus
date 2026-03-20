@@ -91,6 +91,12 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
 
+  packages/eval-runner:
+    dependencies:
+      '@octopus/work-contracts':
+        specifier: workspace:*
+        version: link:../work-contracts
+
   packages/exec-substrate:
     dependencies:
       '@octopus/observability':
@@ -194,6 +200,9 @@ importers:
       '@octopus/automation':
         specifier: workspace:*
         version: link:../automation
+      '@octopus/eval-runner':
+        specifier: workspace:*
+        version: link:../eval-runner
       '@octopus/exec-substrate':
         specifier: workspace:*
         version: link:../exec-substrate

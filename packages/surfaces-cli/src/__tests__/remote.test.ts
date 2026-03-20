@@ -4,6 +4,15 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@octopus/eval-runner", () => ({
+  loadEvalSuite: vi.fn(async () => []),
+  EvalRunner: vi.fn().mockImplementation(() => ({ runSuite: vi.fn(async () => []) })),
+  buildReport: vi.fn(() => ({ id: "run-test", suite: "", results: [], summary: { total: 0, passed: 0, failed: 0, passRate: 0 } })),
+  saveReport: vi.fn(async () => {}),
+  loadReport: vi.fn(async () => null),
+  listReports: vi.fn(async () => []),
+}));
+
 import type { GatewayApp, GatewayConfigSection, LocalAppConfig } from "../factory.js";
 import { buildCli } from "../cli.js";
 import { RemoteClient } from "../remote-client.js";

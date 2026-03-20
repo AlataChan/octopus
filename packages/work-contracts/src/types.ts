@@ -120,6 +120,29 @@ export interface WorkItem {
   createdAt: Date;
 }
 
+export type RiskLevel = "safe" | "consequential" | "dangerous";
+
+export type BlockedKind =
+  | "clarification-required"
+  | "approval-required"
+  | "verification-failed"
+  | "paused-by-operator";
+
+export interface ApprovalFingerprint {
+  actionId: string;
+  actionType: ActionType;
+  fingerprint: string;
+}
+
+export interface BlockedReason {
+  kind: BlockedKind;
+  question?: string;
+  approval?: ApprovalFingerprint;
+  riskLevel?: RiskLevel;
+  evidence?: string;
+  verificationDetails?: EvidenceItem[];
+}
+
 export interface WorkSession {
   id: string;
   goalId: string;
@@ -132,6 +155,7 @@ export interface WorkSession {
   transitions: StateTransition[];
   createdAt: Date;
   updatedAt: Date;
+  blockedReason?: BlockedReason;
 }
 
 export interface SessionSummary {

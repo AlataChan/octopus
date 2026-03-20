@@ -46,10 +46,15 @@ export type RuntimeResponse =
   | { kind: "blocked"; reason: string }
   | { kind: "clarification"; question: string };
 
+export type ResumeInput =
+  | { kind: "clarification"; answer: string }
+  | { kind: "approval"; decision: "approve" | "reject" }
+  | { kind: "operator" };
+
 export interface SessionPlane {
   initSession(goal: WorkGoal): Promise<WorkSession>;
   pauseSession(sessionId: string): Promise<void>;
-  resumeSession(sessionId: string): Promise<void>;
+  resumeSession(sessionId: string, input?: ResumeInput): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
   snapshotSession(sessionId: string): Promise<SessionSnapshot>;
   hydrateSession(snapshot: SessionSnapshot): Promise<WorkSession>;

@@ -1,4 +1,6 @@
-import type { Action } from "@octopus/work-contracts";
+import type { Action, RiskLevel } from "@octopus/work-contracts";
+
+export type { RiskLevel } from "@octopus/work-contracts";
 
 export type ActionCategory =
   | "read"
@@ -7,8 +9,6 @@ export type ActionCategory =
   | "modelApiCall"
   | "network"
   | "remote";
-
-export type RiskLevel = "safe" | "consequential" | "dangerous";
 
 export interface PolicyDecision {
   allowed: boolean;

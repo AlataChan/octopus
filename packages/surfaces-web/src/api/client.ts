@@ -41,6 +41,7 @@ export interface ApprovalRequest {
 
 export interface EventStreamHandle {
   detach: () => void;
+  sendClarification: (answer: string) => void;
 }
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
@@ -171,6 +172,11 @@ export class GatewayClient {
     return {
       detach: () => {
         socket.close();
+      },
+      sendClarification: (answer: string) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "clarification", answer }));
+        }
       }
     };
   }

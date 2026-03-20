@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { WorkEvent } from "@octopus/observability";
 import type { Artifact, SessionSummary, WorkSession } from "@octopus/work-contracts";
 
-import { GatewayClient, type ApprovalRequest, type StatusResponse } from "./api/client.js";
+import { GatewayClient, type ApprovalRequest, type EventStreamHandle, type StatusResponse } from "./api/client.js";
 import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal.js";
 import { ConnectionStatus } from "./components/ConnectionStatus.js";
 import { LoginForm } from "./components/LoginForm.js";
@@ -37,6 +37,7 @@ function AppView() {
   const [busy, setBusy] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [showComposer, setShowComposer] = useState(false);
+  const [streamHandle, setStreamHandle] = useState<EventStreamHandle | null>(null);
   const [artifactPreview, setArtifactPreview] = useState<{
     path: string;
     content: string;
@@ -154,10 +155,12 @@ function AppView() {
         }
       }
     );
+    setStreamHandle(stream);
 
     return () => {
       active = false;
       stream.detach();
+      setStreamHandle(null);
     };
   }, [authenticated, selectedSessionId]);
 
@@ -212,6 +215,10 @@ function AppView() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleClarify = (answer: string) => {
+    streamHandle?.sendClarification(answer);
   };
 
   const handleSubmitTask = async (input: { description: string; namedGoalId?: string }) => {
@@ -343,6 +350,7 @@ function AppView() {
               onControl={handleControl}
               onPreviewArtifact={handlePreviewArtifact}
               onResolveApproval={handleResolveApproval}
+              onClarify={handleClarify}
             />
           ) : null}
         </div>

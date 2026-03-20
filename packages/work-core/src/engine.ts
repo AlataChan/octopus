@@ -1,16 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { McpToolDescription, RuntimeResponse } from "@octopus/agent-runtime";
+import type { McpToolDescription, ResumeInput, RuntimeResponse } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
 import type { EventBus, EventPayloadByType, WorkEvent, WorkEventType } from "@octopus/observability";
-import type { ActionCategory, SecurityPolicy } from "@octopus/security";
+import { createShellApprovalKey, type ActionCategory, type SecurityPolicy } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
 import {
+  createWorkGoal,
   isCompletable,
   type Action,
   type Artifact,
+  type BlockedReason,
+  type RiskLevel,
   type SessionState,
   type Verification,
   type VerificationResult,
@@ -95,6 +98,51 @@ export class WorkEngine {
     this.emit(session, "session.blocked", "work-core", { reason: "Paused by operator." });
     await this.captureSnapshot(session);
     return session;
+  }
+
+  async resumeBlockedSession(
+    sessionId: string,
+    input: ResumeInput,
+    options: ExecuteGoalOptions = {}
+  ): Promise<WorkSession> {
+    const session = await this.stateStore.loadSession(sessionId);
+    if (!session) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    if (session.state !== "blocked") {
+      throw new Error(`Session ${sessionId} is not blocked (current state: ${session.state})`);
+    }
+
+    // Verify snapshot exists BEFORE mutating state
+    const snapshot = await this.stateStore.loadSnapshot(sessionId);
+    if (!snapshot) {
+      throw new Error(`No snapshot found for session ${sessionId}. Cannot resume.`);
+    }
+
+    // Now atomically transition state: prevent duplicate resume
+    const blockedReason = session.blockedReason;
+    session.blockedReason = undefined;
+    transitionSession(session, "active", "Resuming from blocked state");
+    await this.stateStore.saveSession(session);
+
+    // Register approval key with policy if approved
+    if (input.kind === "approval" && input.decision === "approve" && blockedReason?.approval) {
+      this.policy.approveForSession(blockedReason.approval.fingerprint);
+    }
+
+    // Reconstruct goal from session data (use full description from first work item if available)
+    const fullDescription = snapshot.session.items[0]?.description
+      ?? snapshot.session.goalSummary
+      ?? "Resumed session";
+    const goal = createWorkGoal({
+      id: snapshot.session.goalId,
+      description: fullDescription,
+    });
+
+    return this.executeGoal(goal, {
+      ...options,
+      resumeFrom: { sessionId, snapshotId: snapshot.snapshotId },
+    });
   }
 
   private async startSession(goal: WorkGoal, workspaceRoot?: string): Promise<WorkSession> {
@@ -195,7 +243,29 @@ export class WorkEngine {
     this.emit(session, "action.requested", "work-core", { actionId: action.id, actionType: action.type });
 
     const decision = this.policy.evaluate(action, mapActionTypeToCategory(action.type));
-    if (!decision.allowed || decision.requiresConfirmation) {
+    if (!decision.allowed) {
+      transitionSession(session, "blocked", decision.reason);
+      await this.stateStore.saveSession(session);
+      this.emit(session, "session.blocked", "work-core", {
+        actionId: action.id,
+        reason: decision.reason,
+        riskLevel: decision.riskLevel
+      });
+      await this.captureSnapshot(session);
+      return true;
+    }
+
+    if (decision.requiresConfirmation) {
+      const fingerprint = computeApprovalKey(action);
+      session.blockedReason = {
+        kind: "approval-required",
+        approval: {
+          actionId: action.id,
+          actionType: action.type,
+          fingerprint,
+        },
+        riskLevel: decision.riskLevel as RiskLevel,
+      };
       transitionSession(session, "blocked", decision.reason);
       await this.stateStore.saveSession(session);
       this.emit(session, "session.blocked", "work-core", {
@@ -295,6 +365,7 @@ export class WorkEngine {
     workspaceRoot: string | undefined,
     payload: EventPayloadByType["session.blocked"]
   ): Promise<WorkSession> {
+    session.blockedReason = buildBlockedReason(payload);
     transitionSession(session, "blocked", reason);
     await this.writeVisibleState(goal, session, workspaceRoot, payload.clarification ? "Clarification requested" : "Await user input");
     await this.stateStore.saveSession(session);
@@ -580,4 +651,30 @@ interface ActionResultLike {
   success: boolean;
   output: string;
   error?: string;
+}
+
+function computeApprovalKey(action: Action): string {
+  if (action.type === "shell") {
+    const executable = action.params.executable as string ?? "";
+    const args = (action.params.args ?? []) as string[];
+    return createShellApprovalKey(executable, args);
+  }
+  // Non-shell actions: use deterministic hash as approval key
+  const payload = JSON.stringify(
+    Object.keys(action.params).sort().reduce<Record<string, unknown>>((sorted, key) => {
+      sorted[key] = action.params[key];
+      return sorted;
+    }, {})
+  );
+  return `${action.type}:${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
+}
+
+function buildBlockedReason(payload: EventPayloadByType["session.blocked"]): BlockedReason {
+  if (payload.clarification) {
+    return { kind: "clarification-required", question: payload.clarification };
+  }
+  if (payload.reason === "Completion predicate failed.") {
+    return { kind: "verification-failed", evidence: payload.reason };
+  }
+  return { kind: "paused-by-operator" };
 }

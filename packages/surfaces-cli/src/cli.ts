@@ -179,6 +179,81 @@ export function buildCli(
       process.stdout.write(`${JSON.stringify(session, null, 2)}\n`);
     });
 
+  program
+    .command("resume")
+    .argument("<sessionId>")
+    .option("--answer <text>", "Provide clarification answer")
+    .option("--approve", "Approve the pending action")
+    .option("--reject", "Reject the pending action")
+    .option("--profile <profile>", "security profile")
+    .option("--policy-file <path>", "platform policy file")
+    .action(async (sessionId: string, options: ResumeOptions) => {
+      const config = applyCommandOverrides(configFactory(), options);
+      assertValidConfig(config);
+
+      const app = await resolvedDependencies.createLocalWorkEngine(config);
+
+      let resumeInput: import("@octopus/agent-runtime").ResumeInput;
+      if (options.answer) {
+        resumeInput = { kind: "clarification", answer: options.answer };
+      } else if (options.approve) {
+        resumeInput = { kind: "approval", decision: "approve" };
+      } else if (options.reject) {
+        resumeInput = { kind: "approval", decision: "reject" };
+      } else {
+        resumeInput = { kind: "operator" };
+      }
+
+      const session = await app.engine.resumeBlockedSession(sessionId, resumeInput);
+      await app.flushTraces();
+      process.stdout.write(`${session.state}\n`);
+    });
+
+  program
+    .command("checkpoints")
+    .argument("<sessionId>")
+    .action(async (sessionId: string) => {
+      const app = await resolvedDependencies.createLocalWorkEngine(configFactory());
+      const snapshots = await app.store.listSnapshots(sessionId);
+      if (snapshots.length === 0) {
+        process.stdout.write("No checkpoints found.\n");
+        return;
+      }
+      for (const snap of snapshots) {
+        process.stdout.write(`${snap.snapshotId}  ${snap.capturedAt.toISOString()}\n`);
+      }
+    });
+
+  program
+    .command("rollback")
+    .argument("<sessionId>")
+    .argument("[snapshotId]")
+    .option("--profile <profile>", "security profile")
+    .option("--policy-file <path>", "platform policy file")
+    .action(async (sessionId: string, snapshotId: string | undefined, options: CommandOptions) => {
+      const config = applyCommandOverrides(configFactory(), options);
+      assertValidConfig(config);
+
+      const app = await resolvedDependencies.createLocalWorkEngine(config);
+      const storedSession = await app.store.loadSession(sessionId);
+      if (!storedSession) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+
+      const goal = createWorkGoal({
+        id: storedSession.goalId,
+        namedGoalId: storedSession.namedGoalId,
+        description: storedSession.goalSummary ?? `Rollback session ${sessionId}`
+      });
+
+      const session = await app.engine.executeGoal(goal, {
+        workspaceRoot: config.workspaceRoot,
+        resumeFrom: { sessionId, ...(snapshotId ? { snapshotId } : {}) }
+      });
+      await app.flushTraces();
+      process.stdout.write(`${session.state}\n`);
+    });
+
   const remoteCommand = program.command("remote");
   remoteCommand
     .command("sessions")
@@ -402,16 +477,22 @@ export async function main(): Promise<void> {
   await program.parseAsync(process.argv);
 }
 
-function createDefaultConfig(workspaceRoot: string, modelClient: ModelClient): LocalAppConfig {
+export function createDefaultConfig(workspaceRoot: string, modelClient: ModelClient): LocalAppConfig {
   const dataDir = join(workspaceRoot, ".octopus");
-  const fileConfig = readFileConfig(join(dataDir, "config.json"));
+  const configPath = join(dataDir, "config.json");
+  const { config: fileConfig, issues: fileConfigIssues } = readFileConfig(configPath);
+  const configIssues = [...fileConfigIssues];
+  const envProviderIssue = createUnsupportedProviderIssue("OCTOPUS_PROVIDER", process.env.OCTOPUS_PROVIDER);
+  if (envProviderIssue) {
+    configIssues.push(envProviderIssue);
+  }
 
   return {
     workspaceRoot,
     dataDir,
     runtime: {
-      provider: readProvider(process.env.OCTOPUS_PROVIDER) ?? fileConfig.provider ?? "anthropic",
-      model: process.env.OCTOPUS_MODEL ?? fileConfig.model ?? "claude-sonnet-4-6",
+      provider: readProvider(process.env.OCTOPUS_PROVIDER) ?? fileConfig.provider ?? "openai-compatible",
+      model: process.env.OCTOPUS_MODEL ?? fileConfig.model ?? "",
       apiKey: process.env.OCTOPUS_API_KEY ?? fileConfig.apiKey ?? "",
       maxTokens: readNumber(process.env.OCTOPUS_MAX_TOKENS) ?? fileConfig.maxTokens ?? 4_096,
       temperature: readNumber(process.env.OCTOPUS_TEMPERATURE) ?? fileConfig.temperature ?? 0,
@@ -429,6 +510,7 @@ function createDefaultConfig(workspaceRoot: string, modelClient: ModelClient): L
         ? {}
         : { enableRuntimeProxy: fileConfig.gateway.enableRuntimeProxy })
     },
+    ...(configIssues.length > 0 ? { configIssues } : {}),
     ...(fileConfig.mcp ? { mcp: fileConfig.mcp } : {}),
     modelClient
   };
@@ -501,6 +583,9 @@ function validateConfig(config: LocalAppConfig): string[] {
   if (!config.runtime.allowModelApiCall) {
     errors.push("runtime.allowModelApiCall must be true to run the embedded runtime");
   }
+  if (config.configIssues?.length) {
+    errors.push(...config.configIssues);
+  }
 
   return errors;
 }
@@ -541,31 +626,45 @@ interface RestoreOptions extends CommandOptions {
   at?: string;
 }
 
+interface ResumeOptions extends CommandOptions {
+  answer?: string;
+  approve?: boolean;
+  reject?: boolean;
+}
+
 interface RemoteCommandOptions {
   apiKey?: string;
 }
 
-function readFileConfig(path: string): StoredConfig {
+function readFileConfig(path: string): { config: StoredConfig; issues: string[] } {
   if (!existsSync(path)) {
-    return {};
+    return { config: {}, issues: [] };
   }
 
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const issues: string[] = [];
+    const providerIssue = createUnsupportedProviderIssue("runtime.provider", parsed.provider);
+    if (providerIssue) {
+      issues.push(providerIssue);
+    }
     return {
-      provider: readProvider(parsed.provider),
-      model: readString(parsed.model),
-      apiKey: readString(parsed.apiKey),
-      maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : undefined,
-      temperature: typeof parsed.temperature === "number" ? parsed.temperature : undefined,
-      baseUrl: readString(parsed.baseUrl),
-      allowModelApiCall: typeof parsed.allowModelApiCall === "boolean" ? parsed.allowModelApiCall : undefined,
-      profile: readProfile(parsed.profile),
-      gateway: readGatewayConfig(parsed.gateway),
-      mcp: readMcpConfig(parsed.mcp)
+      config: {
+        provider: readProvider(parsed.provider),
+        model: readString(parsed.model),
+        apiKey: readString(parsed.apiKey),
+        maxTokens: typeof parsed.maxTokens === "number" ? parsed.maxTokens : undefined,
+        temperature: typeof parsed.temperature === "number" ? parsed.temperature : undefined,
+        baseUrl: readString(parsed.baseUrl),
+        allowModelApiCall: typeof parsed.allowModelApiCall === "boolean" ? parsed.allowModelApiCall : undefined,
+        profile: readProfile(parsed.profile),
+        gateway: readGatewayConfig(parsed.gateway),
+        mcp: readMcpConfig(parsed.mcp)
+      },
+      issues
     };
   } catch {
-    return {};
+    return { config: {}, issues: [] };
   }
 }
 
@@ -575,7 +674,7 @@ async function setConfigValue(
   rawValue: string
 ): Promise<{ key: string; storedConfig: StoredConfig; displayValue: string | number | boolean | string[] }> {
   const parsed = parseConfigKeyValue(key, rawValue);
-  const current = readFileConfig(configPath);
+  const { config: current } = readFileConfig(configPath);
   const next = applyStoredConfigValue(current, parsed.key, parsed.value);
 
   await mkdir(dirname(configPath), { recursive: true });
@@ -600,7 +699,7 @@ function parseConfigKeyValue(
     case "provider": {
       const provider = readProvider(rawValue);
       if (!provider) {
-        throw new Error("provider must be one of: anthropic, openai-compatible");
+        throw new Error("provider must be: openai-compatible");
       }
       return { key, value: provider };
     }
@@ -677,6 +776,19 @@ function sanitizeStoredConfig(config: StoredConfig) {
         }
       : config.gateway
   };
+}
+
+function createUnsupportedProviderIssue(source: string, value: unknown): string | null {
+  if (value === undefined) {
+    return null;
+  }
+
+  const rawValue = typeof value === "string" ? value.trim() : String(value);
+  if (rawValue.length === 0 || readProvider(rawValue)) {
+    return null;
+  }
+
+  return `${source} "${rawValue}" is no longer supported. Use "openai-compatible" and update baseUrl, model, and apiKey before running the embedded runtime.`;
 }
 
 function readGatewayConfig(value: unknown): StoredGatewayConfig | undefined {
@@ -985,7 +1097,7 @@ async function attachRemoteSession(remoteClient: RemoteClientLike, sessionId: st
 }
 
 function readProvider(value: unknown): LocalAppConfig["runtime"]["provider"] | undefined {
-  return value === "anthropic" || value === "openai-compatible" ? value : undefined;
+  return value === "openai-compatible" ? value : undefined;
 }
 
 function readProfile(value: unknown): SecurityProfileName | undefined {

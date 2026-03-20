@@ -27,7 +27,12 @@ interface ApprovalMessage {
   action: ApprovalBody["action"];
 }
 
-type EventStreamMessage = AuthMessage | ControlMessage | ApprovalMessage;
+interface ClarificationMessage {
+  type: "clarification";
+  answer: string;
+}
+
+type EventStreamMessage = AuthMessage | ControlMessage | ApprovalMessage | ClarificationMessage;
 
 type GatewaySocket = WebSocket & {
   __octopusAuthenticated?: boolean;
@@ -137,6 +142,21 @@ export function handleEventStreamUpgrade(
         sendJson(socket, {
           type: "error",
           error: error instanceof Error ? error.message : "Failed to process approval action."
+        });
+      }
+      return;
+    }
+
+    if (parsed.type === "clarification") {
+      try {
+        await deps.engine.resumeBlockedSession(sessionId, {
+          kind: "clarification",
+          answer: (parsed as ClarificationMessage).answer,
+        });
+      } catch (error) {
+        sendJson(socket, {
+          type: "error",
+          error: error instanceof Error ? error.message : "Failed to resume with clarification."
         });
       }
       return;

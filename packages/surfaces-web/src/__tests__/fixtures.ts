@@ -36,7 +36,8 @@ export function makeWorkSession(overrides: Partial<WorkSession> = {}): WorkSessi
     artifacts: overrides.artifacts ?? [],
     transitions: overrides.transitions ?? [],
     namedGoalId: overrides.namedGoalId,
-    goalSummary: overrides.goalSummary ?? session.goalSummary
+    goalSummary: overrides.goalSummary ?? session.goalSummary,
+    blockedReason: overrides.blockedReason
   };
 }
 

@@ -1,6 +1,7 @@
 import type {
   Action,
   Artifact,
+  BlockedReason,
   Observation,
   StateTransition,
   Verification,
@@ -58,7 +59,8 @@ export function serializeWorkSession(session: WorkSession): StoredWorkSession {
     artifacts: session.artifacts.map(serializeArtifact),
     transitions: session.transitions.map(serializeStateTransition),
     createdAt: session.createdAt.toISOString(),
-    updatedAt: session.updatedAt.toISOString()
+    updatedAt: session.updatedAt.toISOString(),
+    ...(session.blockedReason ? { blockedReason: session.blockedReason } : {})
   };
 }
 
@@ -74,7 +76,8 @@ export function hydrateWorkSession(session: StoredWorkSession): WorkSession {
     artifacts: session.artifacts.map(hydrateArtifact),
     transitions: session.transitions.map(hydrateStateTransition),
     createdAt: new Date(session.createdAt),
-    updatedAt: new Date(session.updatedAt)
+    updatedAt: new Date(session.updatedAt),
+    ...(session.blockedReason ? { blockedReason: session.blockedReason as BlockedReason } : {})
   };
 }
 

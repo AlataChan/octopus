@@ -4,6 +4,7 @@ import type {
   AgentRuntime,
   CompletionCandidate,
   ContextPayload,
+  ResumeInput,
   RuntimeMetadata,
   RuntimeResponse,
   SessionSnapshot
@@ -12,6 +13,7 @@ import type { EventBus } from "@octopus/observability";
 import { createWorkSession, type ActionResult, type WorkGoal, type WorkSession } from "@octopus/work-contracts";
 
 import type { EmbeddedRuntimeConfig } from "./config.js";
+import { resolveEndpoint } from "./http-client.js";
 
 export interface ModelTelemetry {
   endpoint: string;
@@ -70,7 +72,11 @@ export class EmbeddedRuntime implements AgentRuntime {
 
   async pauseSession(): Promise<void> {}
 
-  async resumeSession(): Promise<void> {}
+  async resumeSession(sessionId: string, _input?: ResumeInput): Promise<void> {
+    // Session recovery is handled by engine via hydrateSession.
+    // If session is in memory, it's already available. If not (process restart),
+    // engine restores it from snapshot before calling resumeSession.
+  }
 
   async cancelSession(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
@@ -112,7 +118,7 @@ export class EmbeddedRuntime implements AgentRuntime {
     return session;
   }
 
-  async getMetadata(): Promise<RuntimeMetadata> {
+  async getMetadata(_sessionId: string): Promise<RuntimeMetadata> {
     return {
       runtimeType: this.type,
       model: this.config.model
@@ -194,18 +200,9 @@ function toModelTurnError(error: unknown, config: EmbeddedRuntimeConfig): ModelT
 
   const message = error instanceof Error ? error.message : "Model turn failed.";
   return new ModelTurnError(message, {
-    endpoint: resolveConfiguredEndpoint(config),
+    endpoint: resolveEndpoint(config),
     durationMs: 0,
     success: false,
     error: message
   });
-}
-
-function resolveConfiguredEndpoint(config: EmbeddedRuntimeConfig): string {
-  if (config.provider === "anthropic") {
-    return config.baseUrl ?? "https://api.anthropic.com/v1/messages";
-  }
-
-  const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
-  return baseUrl.endsWith("/chat/completions") ? baseUrl : `${baseUrl.replace(/\/$/, "")}/chat/completions`;
 }

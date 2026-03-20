@@ -25,20 +25,32 @@ export async function handleControl(
     return { ok: true };
   }
 
+  if (body.action === "resume") {
+    try {
+      await deps.engine.resumeBlockedSession(sessionId, { kind: "operator" });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Unknown session")) {
+        throw new HttpError(404, error.message);
+      }
+      if (error instanceof Error && error.message.includes("is not blocked")) {
+        throw new HttpError(400, error.message);
+      }
+      if (error instanceof Error && error.message.includes("No snapshot found")) {
+        throw new HttpError(409, error.message);
+      }
+      throw error;
+    }
+    return { ok: true };
+  }
+
+  // cancel
   const session = await deps.store.loadSession(sessionId);
   if (!session) {
     throw new HttpError(404, `Unknown session: ${sessionId}`);
   }
-
-  if (body.action === "resume") {
-    await deps.runtime.resumeSession(sessionId);
-    session.state = "active";
-  } else {
-    await deps.runtime.cancelSession(sessionId);
-    session.state = "cancelled";
-  }
+  await deps.runtime.cancelSession(sessionId);
+  session.state = "cancelled";
   session.updatedAt = new Date();
   await deps.store.saveSession(session);
-
   return { ok: true };
 }

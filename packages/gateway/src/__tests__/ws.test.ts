@@ -135,6 +135,53 @@ describe("gateway websocket handlers", () => {
     });
   });
 
+  it("routes clarification messages to engine.resumeBlockedSession", async () => {
+    const { deps, resumeBlockedSession } = createDeps();
+    const ws = new FakeWebSocket();
+
+    handleEventStreamUpgrade({} as never, ws as never, "session-1", deps);
+    ws.receive({
+      type: "auth",
+      apiKey: "secret"
+    });
+    await flushAsync();
+
+    ws.receive({
+      type: "clarification",
+      answer: "yes, use /tmp"
+    });
+    await flushAsync();
+
+    expect(resumeBlockedSession).toHaveBeenCalledWith("session-1", {
+      kind: "clarification",
+      answer: "yes, use /tmp"
+    });
+  });
+
+  it("sends error when clarification resume fails", async () => {
+    const { deps, resumeBlockedSession } = createDeps();
+    resumeBlockedSession.mockRejectedValueOnce(new Error("Session is not blocked"));
+    const ws = new FakeWebSocket();
+
+    handleEventStreamUpgrade({} as never, ws as never, "session-1", deps);
+    ws.receive({
+      type: "auth",
+      apiKey: "secret"
+    });
+    await flushAsync();
+
+    ws.receive({
+      type: "clarification",
+      answer: "some answer"
+    });
+    await flushAsync();
+
+    expect(ws.sentMessages).toContainEqual({
+      type: "error",
+      error: "Session is not blocked"
+    });
+  });
+
   it("rejects runtime protocol connections when runtime proxy is disabled", () => {
     const { deps } = createDeps({
       auth: {
@@ -225,6 +272,7 @@ function createDeps(
   eventBus: EventBus;
   pauseSession: ReturnType<typeof vi.fn>;
   cancelSession: ReturnType<typeof vi.fn>;
+  resumeBlockedSession: ReturnType<typeof vi.fn>;
 } {
   const goal = createWorkGoal({
     id: "goal-1",
@@ -247,6 +295,7 @@ function createDeps(
     return current;
   });
   const cancelSession = vi.fn(async () => {});
+  const resumeBlockedSession = vi.fn(async () => {});
   const runtime = createRuntime(cancelSession);
   const config = mergeConfig(configOverrides);
   const tokenStore = new TokenStore(config.auth.sessionTokenTtlMs ?? 3_600_000);
@@ -259,7 +308,8 @@ function createDeps(
           id: "generated-session"
         });
       },
-      pauseSession
+      pauseSession,
+      resumeBlockedSession
     } as unknown as WorkEngine,
     runtime,
     eventBus,
@@ -294,7 +344,8 @@ function createDeps(
     deps,
     eventBus,
     pauseSession,
-    cancelSession
+    cancelSession,
+    resumeBlockedSession
   };
 }
 

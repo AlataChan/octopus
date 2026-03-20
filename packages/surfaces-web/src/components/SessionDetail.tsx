@@ -4,6 +4,7 @@ import type { Artifact, WorkSession } from "@octopus/work-contracts";
 import type { ApprovalRequest } from "../api/client.js";
 import { useI18n } from "../i18n/useI18n.js";
 import { ApprovalDialog } from "./ApprovalDialog.js";
+import { ClarificationDialog } from "./ClarificationDialog.js";
 import { ControlBar } from "./ControlBar.js";
 import { EventStream } from "./EventStream.js";
 
@@ -15,6 +16,7 @@ interface SessionDetailProps {
   onControl: (action: "pause" | "cancel") => Promise<void>;
   onPreviewArtifact: (artifact: Artifact) => Promise<void>;
   onResolveApproval: (action: "approve" | "deny") => Promise<void>;
+  onClarify?: (answer: string) => void;
 }
 
 export function SessionDetail({
@@ -24,7 +26,8 @@ export function SessionDetail({
   busy,
   onControl,
   onPreviewArtifact,
-  onResolveApproval
+  onResolveApproval,
+  onClarify
 }: SessionDetailProps) {
   const { t, tArtifactType, tSessionState, tWorkItemState, formatDateTime } = useI18n();
   const blockedReason = session?.transitions
@@ -52,7 +55,7 @@ export function SessionDetail({
         <div class="session-kv-grid">
           <div class="session-kv">
             <span>{t("sessionDetail.taskTitle")}</span>
-            <strong>{session.namedGoalId ?? session.goalSummary ?? session.id}</strong>
+            <strong>{session.namedGoalId ?? session.goalSummary ?? session.goalId ?? session.id}</strong>
           </div>
           <div class="session-kv">
             <span>{t("sessionDetail.taskSummary")}</span>
@@ -90,7 +93,17 @@ export function SessionDetail({
             <span>{t("sessionDetail.blockedReason")}</span>
             <strong>{blockedReason ?? session.goalSummary ?? session.goalId}</strong>
           </div>
-          <p>{approval ? t("sessionDetail.blockedApprovalHint") : t("sessionDetail.blockedInspectHint")}</p>
+          {session.blockedReason?.kind === "clarification-required" && session.blockedReason.question && onClarify ? (
+            <ClarificationDialog
+              question={session.blockedReason.question}
+              busy={busy}
+              onAnswer={onClarify}
+            />
+          ) : session.blockedReason?.kind === "approval-required" ? (
+            <p>{approval ? t("sessionDetail.blockedApprovalHint") : t("sessionDetail.blockedInspectHint")}</p>
+          ) : (
+            <p>{approval ? t("sessionDetail.blockedApprovalHint") : t("sessionDetail.blockedInspectHint")}</p>
+          )}
         </div>
       ) : null}
 

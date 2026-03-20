@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,13 +21,25 @@ const mocks = vi.hoisted(() => {
     createdAt: new Date("2026-03-18T00:00:00.000Z"),
     updatedAt: new Date("2026-03-18T00:00:00.000Z")
   }));
+  const resumeBlockedSession = vi.fn<() => Promise<WorkSession>>(async () => ({
+    id: "session-1",
+    goalId: "goal-1",
+    state: "active" as const,
+    items: [],
+    observations: [],
+    artifacts: [],
+    transitions: [],
+    createdAt: new Date("2026-03-18T00:00:00.000Z"),
+    updatedAt: new Date("2026-03-18T00:00:00.000Z")
+  }));
   const listSessions = vi.fn(async () => []);
   const loadSession = vi.fn<() => Promise<WorkSession | null>>(async () => null);
   const listSnapshots = vi.fn<() => Promise<SnapshotSummary[]>>(async () => []);
   const createLocalWorkEngine = vi.fn<(config: LocalAppConfig) => LocalApp>(() =>
     ({
       engine: {
-        executeGoal
+        executeGoal,
+        resumeBlockedSession
       },
       store: {
         listSessions,
@@ -79,6 +91,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     executeGoal,
+    resumeBlockedSession,
     listSessions,
     loadSession,
     listSnapshots,
@@ -97,12 +110,13 @@ vi.mock("../factory.js", () => ({
   createGatewayApp: mocks.createGatewayApp
 }));
 
-import { buildCli } from "../cli.js";
+import { buildCli, createDefaultConfig } from "../cli.js";
 
 const tempDirs: string[] = [];
 
 afterEach(() => {
   mocks.executeGoal.mockClear();
+  mocks.resumeBlockedSession.mockClear();
   mocks.listSessions.mockClear();
   mocks.loadSession.mockClear();
   mocks.listSnapshots.mockClear();
@@ -124,8 +138,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -155,8 +169,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -187,8 +201,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -212,8 +226,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -238,8 +252,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "",
         maxTokens: 1_024,
         temperature: 0,
@@ -273,8 +287,8 @@ describe("buildCli", () => {
       workspaceRoot,
       dataDir: join(workspaceRoot, ".octopus"),
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "",
         maxTokens: 1_024,
         temperature: 0,
@@ -305,8 +319,8 @@ describe("buildCli", () => {
       workspaceRoot,
       dataDir: join(workspaceRoot, ".octopus"),
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -336,8 +350,8 @@ describe("buildCli", () => {
       workspaceRoot,
       dataDir: join(workspaceRoot, ".octopus"),
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -357,6 +371,34 @@ describe("buildCli", () => {
     const saved = JSON.parse(await readFile(join(workspaceRoot, ".octopus", "config.json"), "utf8")) as Record<string, unknown>;
     expect(saved.profile).toBe("vibe");
     stdout.mockRestore();
+  });
+
+  it("rejects legacy Anthropic runtime configs instead of silently remapping them", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-cli-"));
+    tempDirs.push(workspaceRoot);
+    await mkdir(join(workspaceRoot, ".octopus"), { recursive: true });
+    await writeFile(
+      join(workspaceRoot, ".octopus", "config.json"),
+      `${JSON.stringify({
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        apiKey: "legacy-key",
+        allowModelApiCall: true
+      })}\n`,
+      "utf8"
+    );
+
+    const program = buildCli(() =>
+      createDefaultConfig(workspaceRoot, {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      })
+    );
+
+    await expect(program.parseAsync(["run", "inspect repo"], { from: "user" })).rejects.toThrow(
+      /runtime\.provider "anthropic" is no longer supported/i
+    );
   });
 
   it("restores from the snapshot closest to the requested timestamp", async () => {
@@ -389,8 +431,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -423,8 +465,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -448,8 +490,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -506,8 +548,8 @@ describe("buildCli", () => {
       workspaceRoot: "/workspace",
       dataDir: "/workspace/.octopus",
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -566,8 +608,8 @@ describe("buildCli", () => {
       workspaceRoot,
       dataDir: join(workspaceRoot, ".octopus"),
       runtime: {
-        provider: "anthropic" as const,
-        model: "claude-sonnet-4-6",
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
         apiKey: "test-key",
         maxTokens: 1_024,
         temperature: 0,
@@ -593,8 +635,8 @@ describe("buildCli", () => {
         workspaceRoot: "/workspace",
         dataDir: "/workspace/.octopus",
         runtime: {
-          provider: "anthropic" as const,
-          model: "claude-sonnet-4-6",
+          provider: "openai-compatible" as const,
+          model: "gpt-4o",
           apiKey: "test-key",
           maxTokens: 1_024,
           temperature: 0,
@@ -645,8 +687,8 @@ describe("buildCli", () => {
         workspaceRoot: "/workspace",
         dataDir: "/workspace/.octopus",
         runtime: {
-          provider: "anthropic" as const,
-          model: "claude-sonnet-4-6",
+          provider: "openai-compatible" as const,
+          model: "gpt-4o",
           apiKey: "test-key",
           maxTokens: 1_024,
           temperature: 0,
@@ -680,5 +722,90 @@ describe("buildCli", () => {
     );
     expect(mocks.stopAll).toHaveBeenCalledTimes(1);
     stdout.mockRestore();
+  });
+
+  describe("resume command", () => {
+    const configFactory = () => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      }
+    });
+
+    it("calls resumeBlockedSession with clarification answer", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["resume", "session-1", "--answer", "use /tmp"], { from: "user" });
+      expect(mocks.resumeBlockedSession).toHaveBeenCalledWith("session-1", { kind: "clarification", answer: "use /tmp" });
+      stdout.mockRestore();
+    });
+
+    it("calls resumeBlockedSession with approve decision", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["resume", "session-1", "--approve"], { from: "user" });
+      expect(mocks.resumeBlockedSession).toHaveBeenCalledWith("session-1", { kind: "approval", decision: "approve" });
+      stdout.mockRestore();
+    });
+
+    it("calls resumeBlockedSession with reject decision", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["resume", "session-1", "--reject"], { from: "user" });
+      expect(mocks.resumeBlockedSession).toHaveBeenCalledWith("session-1", { kind: "approval", decision: "reject" });
+      stdout.mockRestore();
+    });
+
+    it("calls resumeBlockedSession with operator kind when no options", async () => {
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["resume", "session-1"], { from: "user" });
+      expect(mocks.resumeBlockedSession).toHaveBeenCalledWith("session-1", { kind: "operator" });
+      stdout.mockRestore();
+    });
+  });
+
+  describe("checkpoints command", () => {
+    const configFactory = () => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      }
+    });
+
+    it("lists snapshots for a session", async () => {
+      mocks.listSnapshots.mockResolvedValueOnce([
+        { snapshotId: "snap-1", capturedAt: new Date("2026-03-18T01:00:00.000Z"), schemaVersion: 2 },
+        { snapshotId: "snap-2", capturedAt: new Date("2026-03-18T02:00:00.000Z"), schemaVersion: 2 },
+      ]);
+      const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+      const program = buildCli(configFactory);
+      await program.parseAsync(["checkpoints", "session-1"], { from: "user" });
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("snap-1"));
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("snap-2"));
+      stdout.mockRestore();
+    });
   });
 });

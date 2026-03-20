@@ -236,6 +236,65 @@ describe("GatewayServer", () => {
     expect(missing.statusCode).toBe(404);
     expect(unsafe.statusCode).toBe(404);
   });
+
+  it("resume calls engine.resumeBlockedSession with operator input", async () => {
+    const { server, session, resumeBlockedSessionCalls } = createGatewayServerHarness();
+    session.state = "blocked";
+
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/sessions/session-1/control",
+      { action: "resume" },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ ok: true });
+    expect(resumeBlockedSessionCalls).toHaveLength(1);
+    expect(resumeBlockedSessionCalls[0]).toEqual({
+      sessionId: "session-1",
+      input: { kind: "operator" }
+    });
+  });
+
+  it("resume returns 404 for unknown sessions", async () => {
+    const { server } = createGatewayServerHarness();
+
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/sessions/unknown-session/control",
+      { action: "resume" },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("resume returns 400 for non-blocked sessions", async () => {
+    const { server, session } = createGatewayServerHarness();
+    session.state = "active";
+
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/sessions/session-1/control",
+      { action: "resume" },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(400);
+  });
 });
 
 async function dispatch(
@@ -328,6 +387,7 @@ function createGatewayServerHarness(
   server: GatewayServer;
   session: WorkSession;
   executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }>;
+  resumeBlockedSessionCalls: Array<{ sessionId: string; input: unknown }>;
 } {
   const session = createWorkSession(createWorkGoal({ id: "goal-1", description: "Demo" }), {
     id: "session-1"
@@ -337,6 +397,7 @@ function createGatewayServerHarness(
   const store = new MemoryStore([session]);
   const eventBus = new EventBus();
   const executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }> = [];
+  const resumeBlockedSessionCalls: Array<{ sessionId: string; input: unknown }> = [];
   const engine = {
     async executeGoal(goal: WorkGoal, options?: Record<string, unknown>): Promise<WorkSession> {
       executeGoalCalls.push({ goal, options });
@@ -348,6 +409,19 @@ function createGatewayServerHarness(
         throw new Error(`Unknown session: ${sessionId}`);
       }
       current.state = "blocked";
+      await store.saveSession(current);
+      return current;
+    },
+    async resumeBlockedSession(sessionId: string, input: unknown): Promise<WorkSession> {
+      resumeBlockedSessionCalls.push({ sessionId, input });
+      const current = await store.loadSession(sessionId);
+      if (!current) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+      if (current.state !== "blocked") {
+        throw new Error(`Session ${sessionId} is not blocked (state: ${current.state})`);
+      }
+      current.state = "active";
       await store.saveSession(current);
       return current;
     }
@@ -431,7 +505,8 @@ function createGatewayServerHarness(
       policyResolution
     ),
     session,
-    executeGoalCalls
+    executeGoalCalls,
+    resumeBlockedSessionCalls
   };
 }
 

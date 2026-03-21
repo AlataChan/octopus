@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadBuiltinPacks, loadCustomPacks, resolveGoal, validateParams, validateWorkPack } from "../registry.js";
+import { loadBuiltinPacks, validateParams } from "../packs.js";
+import { loadCustomPacks, resolveGoal, validateWorkPack } from "../registry.js";
 
 const tempDirs: string[] = [];
 afterEach(async () => {

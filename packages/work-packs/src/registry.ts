@@ -5,17 +5,8 @@ import { createWorkGoal } from "@octopus/work-contracts";
 import type { WorkGoal } from "@octopus/work-contracts";
 
 import type { WorkPack } from "./types.js";
-import { repoHealthCheck } from "./builtin/repo-health-check.js";
-import { weeklyReport } from "./builtin/weekly-report.js";
-import { dataClean } from "./builtin/data-clean.js";
-import { depAudit } from "./builtin/dep-audit.js";
 
-const BUILTIN_PACKS: WorkPack[] = [repoHealthCheck, weeklyReport, dataClean, depAudit];
 const VALID_CATEGORIES = new Set(["dev", "data", "ops", "report"]);
-
-export function loadBuiltinPacks(): WorkPack[] {
-  return [...BUILTIN_PACKS];
-}
 
 export async function loadCustomPacks(dir: string): Promise<WorkPack[]> {
   let entries: string[];
@@ -69,14 +60,6 @@ export function validateWorkPack(data: unknown, source: string): WorkPack {
     }
   }
   return data as WorkPack;
-}
-
-export function validateParams(pack: WorkPack, params: Record<string, string>): void {
-  for (const param of pack.params) {
-    if (param.required && !params[param.name] && param.default === undefined) {
-      throw new Error(`Missing required parameter: ${param.name} (${param.description})`);
-    }
-  }
 }
 
 export function resolveGoal(pack: WorkPack, params: Record<string, string>): WorkGoal {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
@@ -95,6 +96,69 @@ export function buildCli(
   };
   const program = new Command();
   program.name("octopus");
+  program.description("Octopus — AI work agent that executes goals autonomously");
+
+  // Default action: when running `octopus` with no arguments
+  program.action(() => {
+    const config = configFactory();
+    const errors = validateConfig(config);
+    if (errors.length > 0) {
+      process.stdout.write("\n  Octopus is not configured yet.\n\n");
+      process.stdout.write("  Run the setup wizard:\n\n");
+      process.stdout.write("    octopus init\n\n");
+      process.stdout.write("  Or configure manually:\n\n");
+      process.stdout.write("    octopus config set model <model-name>\n");
+      process.stdout.write("    octopus config set apiKey <your-api-key>\n");
+      process.stdout.write("    octopus config set baseUrl <api-endpoint>\n");
+      process.stdout.write("    octopus config set allowModelApiCall true\n\n");
+    } else {
+      program.outputHelp();
+    }
+  });
+
+  program
+    .command("init")
+    .description("Interactive setup wizard")
+    .action(async () => {
+      const config = configFactory();
+      const configPath = join(config.dataDir, "config.json");
+
+      process.stdout.write("\n  Welcome to Octopus!\n\n");
+      process.stdout.write("  Let's configure your AI model connection.\n\n");
+
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+      try {
+        const baseUrl = await rl.question("  API Base URL (e.g. https://api.openai.com/v1): ");
+        const model = await rl.question("  Model name (e.g. gpt-4o, claude-sonnet-4-6): ");
+        const apiKey = await rl.question("  API Key: ");
+        const profileAnswer = await rl.question("  Security profile [safe-local/vibe/platform] (default: safe-local): ");
+
+        const profile = readProfile(profileAnswer.trim()) ?? "safe-local";
+
+        const storedConfig: Record<string, unknown> = {
+          provider: "openai-compatible",
+          model: model.trim(),
+          apiKey: apiKey.trim(),
+          allowModelApiCall: true,
+          profile,
+        };
+        if (baseUrl.trim()) {
+          storedConfig.baseUrl = baseUrl.trim();
+        }
+
+        await mkdir(dirname(configPath), { recursive: true });
+        await writeFile(configPath, `${JSON.stringify(storedConfig, null, 2)}\n`, "utf8");
+
+        process.stdout.write(`\n  Configuration saved to ${configPath}\n\n`);
+        process.stdout.write("  You're ready to go! Try:\n\n");
+        process.stdout.write("    octopus run \"analyze this repository\"\n");
+        process.stdout.write("    octopus pack list\n");
+        process.stdout.write("    octopus pack run repo-health-check\n\n");
+      } finally {
+        rl.close();
+      }
+    });
 
   program
     .command("run")

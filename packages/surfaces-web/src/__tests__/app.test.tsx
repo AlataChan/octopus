@@ -12,9 +12,9 @@ const { listSessions, getSession, getStatus, submitGoal, getArtifactContent, con
   connectEventStream: vi.fn(() => ({ detach: vi.fn() }))
 }));
 
-vi.mock("@octopus/work-packs", () => ({
+vi.mock("@octopus/work-packs/browser", () => ({
   loadBuiltinPacks: () => [],
-  resolveGoal: () => ({ id: "goal-1", description: "", constraints: [], successCriteria: [], createdAt: new Date() })
+  validateParams: () => {},
 }));
 
 vi.mock("../api/client.js", () => {

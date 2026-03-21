@@ -28,17 +28,9 @@ const fakePacks: WorkPack[] = [
   }
 ];
 
-vi.mock("@octopus/work-packs", () => ({
+vi.mock("@octopus/work-packs/browser", () => ({
   loadBuiltinPacks: () => [...fakePacks],
   validateParams: () => {},
-  resolveGoal: (pack: WorkPack, params: Record<string, string>) => ({
-    id: "goal-1",
-    description: pack.goalTemplate.replace(/\{\{(\w+)\}\}/g, (_, key: string) => params[key] ?? `{{${key}}}`),
-    constraints: pack.constraintTemplates.map((t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, key: string) => params[key] ?? `{{${key}}}`)),
-    successCriteria: pack.successCriteriaTemplates.map((t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, key: string) => params[key] ?? `{{${key}}}`)),
-    createdAt: new Date(),
-    namedGoalId: pack.id
-  })
 }));
 
 import { TaskComposer } from "../components/TaskComposer.js";

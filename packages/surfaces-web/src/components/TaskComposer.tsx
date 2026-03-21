@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 
-import { loadBuiltinPacks, resolveGoal, validateParams } from "@octopus/work-packs";
-import type { WorkPack } from "@octopus/work-packs";
+import { loadBuiltinPacks, validateParams } from "@octopus/work-packs/browser";
+import type { WorkPack } from "@octopus/work-packs/browser";
 
 import type { GoalSubmissionInput } from "../api/client.js";
 import { useI18n } from "../i18n/useI18n.js";
@@ -30,18 +30,16 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
     if (selectedPack) {
       try {
         validateParams(selectedPack, packParams);
-      } catch (error) {
-        return; // required params missing — button should already be disabled
+      } catch {
+        return;
       }
-      const goal = resolveGoal(selectedPack, packParams);
-      // Fold constraints + successCriteria into description for web submission
-      // (gateway API only accepts description + namedGoalId)
-      const parts = [goal.description];
-      if (goal.constraints.length > 0) {
-        parts.push("\n\nConstraints:\n" + goal.constraints.map((c) => `- ${c}`).join("\n"));
+      const replace = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, k: string) => packParams[k] ?? `{{${k}}}`);
+      const parts = [replace(selectedPack.goalTemplate)];
+      if (selectedPack.constraintTemplates.length > 0) {
+        parts.push("\n\nConstraints:\n" + selectedPack.constraintTemplates.map((c) => `- ${replace(c)}`).join("\n"));
       }
-      if (goal.successCriteria.length > 0) {
-        parts.push("\n\nSuccess Criteria:\n" + goal.successCriteria.map((c) => `- ${c}`).join("\n"));
+      if (selectedPack.successCriteriaTemplates.length > 0) {
+        parts.push("\n\nSuccess Criteria:\n" + selectedPack.successCriteriaTemplates.map((c) => `- ${replace(c)}`).join("\n"));
       }
       finalDescription = parts.join("");
       finalNamedGoalId = selectedPack.id;

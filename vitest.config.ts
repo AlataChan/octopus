@@ -20,6 +20,7 @@ export default defineConfig({
       "@octopus/surfaces-cli": resolve("packages/surfaces-cli/src/index.ts"),
       "@octopus/gateway": resolve("packages/gateway/src/index.ts"),
       "@octopus/eval-runner": resolve("packages/eval-runner/src/index.ts"),
+      "@octopus/work-packs/browser": resolve("packages/work-packs/src/packs.ts"),
       "@octopus/work-packs": resolve("packages/work-packs/src/index.ts")
     }
   },

@@ -1,3 +1,4 @@
+export type { WorkPack } from "./types.js";
 import type { WorkPack } from "./types.js";
 import { repoHealthCheck } from "./builtin/repo-health-check.js";
 import { weeklyReport } from "./builtin/weekly-report.js";

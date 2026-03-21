@@ -108,10 +108,11 @@ describe("TaskComposer pack selector", () => {
         })
       );
       // Description should contain the resolved goal + folded constraints/criteria
-      const call = onSubmit.mock.calls[0][0];
-      expect(call.description).toContain("data.csv");
-      expect(call.description).toContain("Constraints:");
-      expect(call.description).toContain("Success Criteria:");
+      const calls = onSubmit.mock.calls as unknown as Array<[{ description: string }]>;
+      const call = calls[0]?.[0];
+      expect(call?.description).toContain("data.csv");
+      expect(call?.description).toContain("Constraints:");
+      expect(call?.description).toContain("Success Criteria:");
     });
   });
 

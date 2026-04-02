@@ -11,6 +11,8 @@ describe("agent runtime snapshot contract", () => {
       session: {
         id: "session-1",
         goalId: "goal-1",
+        workspaceId: "default",
+        configProfileId: "default",
         namedGoalId: "daily-report",
         state: "blocked",
         items: [],

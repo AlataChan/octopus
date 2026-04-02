@@ -11,6 +11,8 @@ function makeCompletedSession(overrides: Partial<WorkSession> = {}): WorkSession
   return {
     id: "session-1",
     goalId: "goal-1",
+    workspaceId: "default",
+    configProfileId: "default",
     state: "completed",
     items: [],
     observations: [],

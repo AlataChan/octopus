@@ -130,7 +130,7 @@ describe("resumeBlockedSession", () => {
       allowAllPolicy()
     );
 
-    const resumed = await engine2.resumeBlockedSession(blockedSession.id, { kind: "clarification", answer: "use /tmp" });
+    await engine2.resumeBlockedSession(blockedSession.id, { kind: "clarification", answer: "use /tmp" });
 
     // Session should have been atomically transitioned
     // Check that the intermediate save cleared blockedReason

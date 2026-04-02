@@ -51,6 +51,10 @@ export function serializeWorkSession(session: WorkSession): StoredWorkSession {
   return {
     id: session.id,
     goalId: session.goalId,
+    workspaceId: session.workspaceId,
+    configProfileId: session.configProfileId,
+    ...(session.createdBy ? { createdBy: session.createdBy } : {}),
+    ...(session.taskTitle ? { taskTitle: session.taskTitle } : {}),
     ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
     ...(session.goalSummary ? { goalSummary: session.goalSummary } : {}),
     state: session.state,
@@ -68,6 +72,10 @@ export function hydrateWorkSession(session: StoredWorkSession): WorkSession {
   return {
     id: session.id,
     goalId: session.goalId,
+    workspaceId: session.workspaceId ?? "default",
+    configProfileId: session.configProfileId ?? "default",
+    ...(session.createdBy ? { createdBy: session.createdBy } : {}),
+    ...(session.taskTitle ? { taskTitle: session.taskTitle } : {}),
     ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
     ...(session.goalSummary ? { goalSummary: session.goalSummary } : {}),
     state: session.state,

@@ -15,6 +15,8 @@ describe("WorkEngine resume", () => {
     const resumedSession = {
       id: "session-1",
       goalId: resumedGoal.id,
+      workspaceId: "default",
+      configProfileId: "default",
       state: "blocked" as const,
       items: [],
       observations: [],

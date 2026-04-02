@@ -9,8 +9,12 @@ export function makeSessionSummary(overrides: Partial<SessionSummary> = {}): Ses
   return {
     id: overrides.id ?? "session-1",
     goalId: overrides.goalId ?? "goal-1",
+    workspaceId: overrides.workspaceId ?? "default",
+    configProfileId: overrides.configProfileId ?? "default",
     state: overrides.state ?? "active",
     updatedAt: overrides.updatedAt ?? now,
+    createdBy: overrides.createdBy,
+    taskTitle: overrides.taskTitle,
     namedGoalId: overrides.namedGoalId,
     goalSummary: overrides.goalSummary
   };
@@ -25,7 +29,11 @@ export function makeWorkSession(overrides: Partial<WorkSession> = {}): WorkSessi
   const session = createWorkSession(goal, {
     id: overrides.id ?? "session-1",
     createdAt: overrides.createdAt ?? now,
-    updatedAt: overrides.updatedAt ?? now
+    updatedAt: overrides.updatedAt ?? now,
+    workspaceId: overrides.workspaceId ?? "default",
+    configProfileId: overrides.configProfileId ?? "default",
+    createdBy: overrides.createdBy,
+    taskTitle: overrides.taskTitle
   });
 
   return {
@@ -35,6 +43,10 @@ export function makeWorkSession(overrides: Partial<WorkSession> = {}): WorkSessi
     observations: overrides.observations ?? [],
     artifacts: overrides.artifacts ?? [],
     transitions: overrides.transitions ?? [],
+    workspaceId: overrides.workspaceId ?? session.workspaceId,
+    configProfileId: overrides.configProfileId ?? session.configProfileId,
+    createdBy: overrides.createdBy ?? session.createdBy,
+    taskTitle: overrides.taskTitle ?? session.taskTitle,
     namedGoalId: overrides.namedGoalId,
     goalSummary: overrides.goalSummary ?? session.goalSummary,
     blockedReason: overrides.blockedReason
@@ -51,7 +63,12 @@ export function makeStatus(overrides: Partial<StatusResponse> = {}): StatusRespo
     port: overrides.port ?? 4321,
     allowRemote: overrides.allowRemote ?? true,
     activeSessionCount: overrides.activeSessionCount ?? 2,
-    connectedClients: overrides.connectedClients ?? 1
+    connectedClients: overrides.connectedClients ?? 1,
+    currentRole: overrides.currentRole,
+    currentOperator: overrides.currentOperator,
+    browserLoginConfigured: overrides.browserLoginConfigured,
+    configuredUsers: overrides.configuredUsers,
+    traceStreamingAvailable: overrides.traceStreamingAvailable
   };
 }
 

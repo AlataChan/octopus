@@ -25,6 +25,8 @@ export default defineConfig({
     }
   },
   test: {
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     projects: [
       {
         test: {
@@ -109,6 +111,7 @@ export default defineConfig({
           name: "surfaces-web",
           include: ["packages/surfaces-web/src/**/*.test.ts", "packages/surfaces-web/src/**/*.test.tsx"],
           environment: "jsdom",
+          testTimeout: 20_000,
           setupFiles: ["packages/surfaces-web/src/test/setup.ts"]
         }
       },

@@ -76,9 +76,17 @@ export class FileStateStore implements StateStore {
             const summary: SessionSummary = {
               id: session.id,
               goalId: session.goalId,
+              workspaceId: session.workspaceId,
+              configProfileId: session.configProfileId,
               state: session.state,
               updatedAt: session.updatedAt
             };
+            if (session.createdBy) {
+              summary.createdBy = session.createdBy;
+            }
+            if (session.taskTitle) {
+              summary.taskTitle = session.taskTitle;
+            }
             if (session.namedGoalId) {
               summary.namedGoalId = session.namedGoalId;
             }

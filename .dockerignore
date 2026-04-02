@@ -1,0 +1,12 @@
+.git
+.github
+.octopus
+.pnpm-store
+node_modules
+packages/*/node_modules
+packages/*/dist
+coverage
+dist
+tmp
+workspace
+runtime-data

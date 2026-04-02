@@ -6,6 +6,7 @@ import type { WorkEvent } from "@octopus/observability";
 
 import { validateApiKey } from "../auth.js";
 import { handleApproval, type ApprovalBody } from "../routes/approval.js";
+import { handleClarification } from "../routes/clarification.js";
 import { handleControl, type ControlBody } from "../routes/control.js";
 import type { RouteDeps } from "../routes/shared.js";
 import type { OperatorContext } from "../types.js";
@@ -149,9 +150,8 @@ export function handleEventStreamUpgrade(
 
     if (parsed.type === "clarification") {
       try {
-        await deps.engine.resumeBlockedSession(sessionId, {
-          kind: "clarification",
-          answer: (parsed as ClarificationMessage).answer,
+        await handleClarification(deps, socket.__octopusOperator!, sessionId, {
+          answer: (parsed as ClarificationMessage).answer
         });
       } catch (error) {
         sendJson(socket, {
@@ -289,6 +289,7 @@ function resolveOperator(message: AuthMessage, deps: RouteDeps): { operator: Ope
     return {
       operator: {
         operatorId: "operator",
+        role: "admin",
         permissions: [...deps.config.auth.defaultPermissions],
         authMethod: "api-key"
       }

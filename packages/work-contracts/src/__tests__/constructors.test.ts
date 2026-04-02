@@ -23,6 +23,8 @@ describe("work-contract constructors", () => {
 
     expect(session.goalId).toBe(goal.id);
     expect(session.namedGoalId).toBe("audit-repo");
+    expect(session.workspaceId).toBe("default");
+    expect(session.configProfileId).toBe("default");
     expect(session.state).toBe("created");
     expect(session.items).toEqual([]);
     expect(session.observations).toEqual([]);
@@ -30,5 +32,20 @@ describe("work-contract constructors", () => {
     expect(session.transitions).toEqual([]);
     expect(session.createdAt).toBeInstanceOf(Date);
     expect(session.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("creates a work session with release metadata overrides", () => {
+    const goal = createWorkGoal({ description: "Audit repo" });
+    const session = createWorkSession(goal, {
+      workspaceId: "workspace-a",
+      configProfileId: "profile-a",
+      createdBy: "ops@example.com",
+      taskTitle: "README 摘要"
+    });
+
+    expect(session.workspaceId).toBe("workspace-a");
+    expect(session.configProfileId).toBe("profile-a");
+    expect(session.createdBy).toBe("ops@example.com");
+    expect(session.taskTitle).toBe("README 摘要");
   });
 });

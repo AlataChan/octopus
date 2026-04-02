@@ -29,6 +29,8 @@ export class FakeRuntime implements AgentRuntime {
       session: {
         id: sessionId,
         goalId: "goal-1",
+        workspaceId: "default",
+        configProfileId: "default",
         state: "blocked",
         items: [],
         observations: [],
@@ -124,6 +126,10 @@ export class MemoryStateStore implements StateStore {
     return this.sessions.map((session) => ({
       id: session.id,
       goalId: session.goalId,
+      workspaceId: session.workspaceId,
+      configProfileId: session.configProfileId,
+      ...(session.createdBy ? { createdBy: session.createdBy } : {}),
+      ...(session.taskTitle ? { taskTitle: session.taskTitle } : {}),
       ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
       state: session.state,
       updatedAt: session.updatedAt

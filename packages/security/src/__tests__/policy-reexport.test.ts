@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { RiskLevel } from "@octopus/work-contracts";
+import type { RiskLevel } from "@octopus/work-contracts";
 import type { RiskLevel as RiskLevelFromSecurity } from "../policy.js";
 
 describe("RiskLevel re-export", () => {

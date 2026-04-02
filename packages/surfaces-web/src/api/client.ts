@@ -1,7 +1,13 @@
 import type { WorkEvent } from "@octopus/observability";
+import type { SnapshotSummary } from "@octopus/state-store";
 import type { SessionSummary, WorkSession } from "@octopus/work-contracts";
 
-import { MemoryAuthStore, type AuthStore } from "./auth.js";
+import {
+  SessionStorageAuthStore,
+  type AuthRole,
+  type AuthSession,
+  type AuthStore
+} from "./auth.js";
 
 export interface GoalSubmissionResponse {
   sessionId: string;
@@ -12,6 +18,7 @@ export interface GoalSubmissionResponse {
 export interface GoalSubmissionInput {
   description: string;
   namedGoalId?: string;
+  taskTitle?: string;
 }
 
 export interface ArtifactContentResponse {
@@ -24,6 +31,8 @@ export interface ArtifactContentResponse {
 export interface StatusResponse {
   profile: string;
   apiKeyConfigured: boolean;
+  browserLoginConfigured?: boolean;
+  configuredUsers?: number;
   tlsEnabled: boolean;
   trustProxyCIDRs: string[];
   host: string;
@@ -31,6 +40,9 @@ export interface StatusResponse {
   allowRemote: boolean;
   activeSessionCount: number;
   connectedClients: number;
+  traceStreamingAvailable?: boolean;
+  currentRole?: AuthRole;
+  currentOperator?: string;
 }
 
 export interface ApprovalRequest {
@@ -44,36 +56,83 @@ export interface EventStreamHandle {
   sendClarification: (answer: string) => void;
 }
 
+export interface LoginResponse {
+  token: string;
+  expiresAt: string;
+  role: AuthRole;
+  username: string;
+}
+
+export interface RollbackResponse {
+  sessionId: string;
+  state: string;
+  restoredFromSessionId: string;
+  snapshotId: string;
+}
+
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
 export class GatewayClient {
   constructor(
     private readonly baseUrl: string,
-    private readonly authStore: AuthStore = new MemoryAuthStore()
+    private readonly authStore: AuthStore = new SessionStorageAuthStore()
   ) {}
 
-  async login(apiKey: string): Promise<void> {
-    const response = await fetch(resolveHttpUrl(this.baseUrl, "/auth/token"), {
+  async login(username: string, password: string): Promise<AuthSession> {
+    const response = await fetch(resolveHttpUrl(this.baseUrl, "/auth/login"), {
       method: "POST",
       headers: {
-        "X-API-Key": apiKey
-      }
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username,
+        password
+      })
     });
 
     if (!response.ok) {
       throw new Error(await readErrorMessage(response, "Login failed."));
     }
 
-    const payload = await response.json() as { token: string };
-    this.authStore.setToken(payload.token);
+    const payload = await response.json() as LoginResponse;
+    const session = {
+      token: payload.token,
+      expiresAt: payload.expiresAt,
+      role: payload.role,
+      username: payload.username
+    } satisfies AuthSession;
+    this.authStore.setSession(session);
+    return session;
   }
 
-  logout(): void {
-    this.authStore.clear();
+  async logout(): Promise<void> {
+    const session = this.authStore.getSession();
+    if (!session) {
+      this.authStore.clear();
+      return;
+    }
+
+    const response = await fetch(resolveHttpUrl(this.baseUrl, "/auth/logout"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.token}`
+      }
+    });
+
+    if (response.ok || response.status === 401 || response.status === 403) {
+      this.authStore.clear();
+      return;
+    }
+
+    throw new Error(await readErrorMessage(response, "Logout failed."));
   }
 
   isAuthenticated(): boolean {
-    return Boolean(this.authStore.getToken());
+    return Boolean(this.authStore.getSession());
+  }
+
+  getAuthSession(): AuthSession | null {
+    return this.authStore.getSession();
   }
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -83,6 +142,17 @@ export class GatewayClient {
 
   async getSession(id: string): Promise<WorkSession> {
     return reviveWorkSession(await this.requestJson<WorkSession>("GET", `/api/sessions/${encodeURIComponent(id)}`));
+  }
+
+  async listSnapshots(sessionId: string): Promise<SnapshotSummary[]> {
+    const payload = await this.requestJson<Array<Omit<SnapshotSummary, "capturedAt"> & { capturedAt: string }>>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/snapshots`
+    );
+    return payload.map((snapshot) => ({
+      ...snapshot,
+      capturedAt: new Date(snapshot.capturedAt)
+    }));
   }
 
   async submitGoal(input: GoalSubmissionInput): Promise<GoalSubmissionResponse> {
@@ -98,6 +168,18 @@ export class GatewayClient {
       promptId,
       action
     });
+  }
+
+  async submitClarification(sessionId: string, answer: string): Promise<void> {
+    await this.requestJson("POST", `/api/sessions/${encodeURIComponent(sessionId)}/clarification`, {
+      answer
+    });
+  }
+
+  async rollbackSession(sessionId: string, snapshotId?: string): Promise<RollbackResponse> {
+    return this.requestJson<RollbackResponse>("POST", `/api/sessions/${encodeURIComponent(sessionId)}/rollback`, (
+      snapshotId ? { snapshotId } : undefined
+    ));
   }
 
   async getStatus(): Promise<StatusResponse> {
@@ -118,11 +200,10 @@ export class GatewayClient {
     onClose: (reason: string) => void,
     onConnectionChange?: (state: ConnectionState) => void
   ): EventStreamHandle {
-    const token = this.requireToken();
+    const token = this.requireSession().token;
     const socket = new WebSocket(resolveSocketUrl(this.baseUrl, sessionId));
 
     socket.addEventListener("open", () => {
-      onConnectionChange?.("connecting");
       socket.send(JSON.stringify({ type: "auth", token }));
     });
 
@@ -186,12 +267,13 @@ export class GatewayClient {
     path: string,
     body?: unknown
   ): Promise<T> {
+    const headers = {
+      ...this.getAuthHeaders(),
+      ...(body === undefined ? {} : { "Content-Type": "application/json" })
+    };
     const response = await fetch(resolveHttpUrl(this.baseUrl, path), {
       method,
-      headers: {
-        ...this.getAuthHeaders(),
-        "Content-Type": "application/json"
-      },
+      headers,
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     });
 
@@ -204,16 +286,16 @@ export class GatewayClient {
 
   private getAuthHeaders(): Record<string, string> {
     return {
-      Authorization: `Bearer ${this.requireToken()}`
+      Authorization: `Bearer ${this.requireSession().token}`
     };
   }
 
-  private requireToken(): string {
-    const token = this.authStore.getToken();
-    if (!token) {
+  private requireSession(): AuthSession {
+    const session = this.authStore.getSession();
+    if (!session) {
       throw new Error("Not authenticated.");
     }
-    return token;
+    return session;
   }
 }
 

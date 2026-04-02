@@ -15,7 +15,7 @@ interface TaskComposerProps {
 
 export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }: TaskComposerProps) {
   const { t } = useI18n();
-  const [namedGoalId, setNamedGoalId] = useState("");
+  const [taskTitle, setTaskTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedPack, setSelectedPack] = useState<WorkPack | null>(null);
   const [packParams, setPackParams] = useState<Record<string, string>>({});
@@ -25,7 +25,8 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
     event.preventDefault();
 
     let finalDescription = description.trim();
-    let finalNamedGoalId = namedGoalId.trim();
+    let finalNamedGoalId = selectedPack?.id ?? "";
+    const finalTaskTitle = taskTitle.trim();
 
     if (selectedPack) {
       try {
@@ -42,7 +43,6 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
         parts.push("\n\nSuccess Criteria:\n" + selectedPack.successCriteriaTemplates.map((c) => `- ${replace(c)}`).join("\n"));
       }
       finalDescription = parts.join("");
-      finalNamedGoalId = selectedPack.id;
     }
 
     if (!finalDescription) {
@@ -51,10 +51,11 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
 
     await onSubmit({
       description: finalDescription,
-      ...(finalNamedGoalId.length > 0 ? { namedGoalId: finalNamedGoalId } : {})
+      ...(finalNamedGoalId.length > 0 ? { namedGoalId: finalNamedGoalId } : {}),
+      ...(finalTaskTitle.length > 0 ? { taskTitle: finalTaskTitle } : {})
     });
 
-    setNamedGoalId("");
+    setTaskTitle("");
     setDescription("");
     setSelectedPack(null);
     setPackParams({});
@@ -88,7 +89,6 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
               setPackParams({});
               if (pack) {
                 setDescription(pack.goalTemplate);
-                setNamedGoalId(pack.id);
               }
             }}
           >
@@ -129,9 +129,9 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
           <span>{t("taskComposer.taskTitle")}</span>
           <input
             type="text"
-            value={namedGoalId}
+            value={taskTitle}
             placeholder={t("taskComposer.taskTitlePlaceholder")}
-            onInput={(event) => setNamedGoalId((event.currentTarget as HTMLInputElement).value)}
+            onInput={(event) => setTaskTitle((event.currentTarget as HTMLInputElement).value)}
           />
         </label>
 

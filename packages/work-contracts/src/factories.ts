@@ -26,6 +26,10 @@ export interface CreateWorkSessionInput {
   id?: string;
   createdAt?: Date;
   updatedAt?: Date;
+  workspaceId?: string;
+  configProfileId?: string;
+  createdBy?: string;
+  taskTitle?: string;
 }
 
 export function createWorkSession(
@@ -37,6 +41,10 @@ export function createWorkSession(
   return {
     id: input.id ?? randomUUID(),
     goalId: goal.id,
+    workspaceId: input.workspaceId ?? "default",
+    configProfileId: input.configProfileId ?? "default",
+    ...(input.createdBy ? { createdBy: input.createdBy } : {}),
+    ...(input.taskTitle ? { taskTitle: input.taskTitle } : {}),
     namedGoalId: goal.namedGoalId,
     state: "created",
     items: [],

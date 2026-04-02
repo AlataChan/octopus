@@ -276,6 +276,7 @@ function resolveOperator(message: AuthMessage, deps: RouteDeps): { operator: Ope
     return {
       operator: {
         operatorId: "operator",
+        role: "admin",
         permissions: [...deps.config.auth.defaultPermissions],
         authMethod: "api-key"
       }

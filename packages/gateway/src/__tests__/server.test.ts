@@ -15,6 +15,7 @@ import type { SnapshotSummary, StateStore } from "@octopus/state-store";
 import { createWorkGoal, createWorkSession, type Artifact, type SessionSummary, type WorkGoal, type WorkSession } from "@octopus/work-contracts";
 import type { WorkEngine } from "@octopus/work-core";
 
+import { createPasswordHash } from "../auth.js";
 import { GatewayServer } from "../server.js";
 import type { GatewayConfig } from "../types.js";
 
@@ -117,6 +118,175 @@ describe("GatewayServer", () => {
     expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
   });
 
+  it("logs in configured browser users and revokes their tokens on logout", async () => {
+    const passwordHash = await createPasswordHash("octopus-ops");
+    const server = createGatewayServer({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ],
+        users: [
+          {
+            username: "ops1",
+            passwordHash,
+            role: "operator"
+          }
+        ]
+      }
+    });
+
+    const login = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "ops1",
+        password: "octopus-ops"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const payload = login.body as { token: string; role: string; username: string };
+
+    expect(login.statusCode).toBe(200);
+    expect(payload).toMatchObject({
+      role: "operator",
+      username: "ops1"
+    });
+
+    const sessions = await dispatch(server, "GET", "/api/sessions", undefined, {
+      authorization: `Bearer ${payload.token}`
+    });
+    expect(sessions.statusCode).toBe(200);
+
+    const logout = await dispatch(server, "POST", "/auth/logout", undefined, {
+      authorization: `Bearer ${payload.token}`
+    });
+    expect(logout.statusCode).toBe(200);
+
+    const afterLogout = await dispatch(server, "GET", "/api/sessions", undefined, {
+      authorization: `Bearer ${payload.token}`
+    });
+    expect(afterLogout.statusCode).toBe(401);
+  });
+
+  it("preserves password whitespace while still trimming usernames on browser login", async () => {
+    const passwordHash = await createPasswordHash(" octopus-ops ");
+    const server = createGatewayServer({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ],
+        users: [
+          {
+            username: "ops1",
+            passwordHash,
+            role: "operator"
+          }
+        ]
+      }
+    });
+
+    const success = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: " ops1 ",
+        password: " octopus-ops "
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const failure = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "ops1",
+        password: "octopus-ops"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+
+    expect(success.statusCode).toBe(200);
+    expect(failure.statusCode).toBe(401);
+  });
+
+  it("enforces role-specific browser permissions", async () => {
+    const viewerHash = await createPasswordHash("octopus-viewer");
+    const server = createGatewayServer({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ],
+        users: [
+          {
+            username: "viewer1",
+            passwordHash: viewerHash,
+            role: "viewer"
+          }
+        ]
+      }
+    });
+
+    const login = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "viewer1",
+        password: "octopus-viewer"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const token = (login.body as { token: string }).token;
+
+    const listSessions = await dispatch(server, "GET", "/api/sessions", undefined, {
+      authorization: `Bearer ${token}`
+    });
+    const submitGoal = await dispatch(
+      server,
+      "POST",
+      "/api/goals",
+      {
+        description: "整理 README"
+      },
+      {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      }
+    );
+
+    expect(login.statusCode).toBe(200);
+    expect(listSessions.statusCode).toBe(200);
+    expect(submitGoal.statusCode).toBe(403);
+  });
+
   it("mints scoped tokens when permissions are requested", async () => {
     const server = createGatewayServer();
     const mint = await dispatch(
@@ -177,7 +347,7 @@ describe("GatewayServer", () => {
     expect(invalidControl.statusCode).toBe(400);
   });
 
-  it("submits goals with namedGoalId and workspaceRoot from config", async () => {
+  it("submits goals with release metadata and workspaceRoot from config", async () => {
     const { server, executeGoalCalls } = createGatewayServerHarness({
       workspaceRoot: "/workspace"
     });
@@ -187,7 +357,8 @@ describe("GatewayServer", () => {
       "/api/goals",
       {
         description: "整理 README",
-        namedGoalId: "readme-summary"
+        namedGoalId: "readme-summary",
+        taskTitle: "README 摘要"
       },
       {
         "x-api-key": "secret",
@@ -198,7 +369,13 @@ describe("GatewayServer", () => {
     expect(response.statusCode).toBe(200);
     expect(executeGoalCalls).toHaveLength(1);
     expect(executeGoalCalls[0]?.goal.namedGoalId).toBe("readme-summary");
-    expect(executeGoalCalls[0]?.options).toEqual({ workspaceRoot: "/workspace" });
+    expect(executeGoalCalls[0]?.options).toEqual({
+      workspaceRoot: "/workspace",
+      workspaceId: "default",
+      configProfileId: "default",
+      createdBy: "operator",
+      taskTitle: "README 摘要"
+    });
   });
 
   it("returns registered artifact content and rejects unknown or unsafe paths", async () => {
@@ -295,6 +472,142 @@ describe("GatewayServer", () => {
 
     expect(response.statusCode).toBe(400);
   });
+
+  it("submits clarification answers over HTTP and resumes the blocked session", async () => {
+    const { server, session, resumeBlockedSessionCalls } = createGatewayServerHarness();
+    session.state = "blocked";
+
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/sessions/session-1/clarification",
+      { answer: "yes, use /tmp" },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ ok: true });
+    expect(resumeBlockedSessionCalls).toContainEqual({
+      sessionId: "session-1",
+      input: { kind: "clarification", answer: "yes, use /tmp" }
+    });
+  });
+
+  it("returns 403 when clarification permission is missing", async () => {
+    const { server, session } = createGatewayServerHarness({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: ["sessions.read"]
+      }
+    });
+    session.state = "blocked";
+
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/sessions/session-1/clarification",
+      { answer: "yes, use /tmp" },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("surfaces role-aware status metadata for browser sessions", async () => {
+    const passwordHash = await createPasswordHash("octopus-ops");
+    const server = createGatewayServer({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ],
+        users: [
+          {
+            username: "ops1",
+            passwordHash,
+            role: "operator"
+          }
+        ]
+      }
+    });
+
+    const login = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "ops1",
+        password: "octopus-ops"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const token = (login.body as { token: string }).token;
+    const response = await dispatch(server, "GET", "/api/status", undefined, {
+      authorization: `Bearer ${token}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual(expect.objectContaining({
+      currentRole: "operator",
+      currentOperator: "ops1",
+      browserLoginConfigured: true,
+      configuredUsers: 1,
+      traceStreamingAvailable: false
+    }));
+  });
+
+  it("rolls back a session from a selected checkpoint", async () => {
+    const { server, session, store, executeGoalCalls } = createGatewayServerHarness();
+    await store.saveSnapshot("session-1", {
+      schemaVersion: 2,
+      snapshotId: "snapshot-1",
+      capturedAt: new Date("2026-03-19T16:00:00.000Z"),
+      session,
+      runtimeContext: {
+        pendingResults: []
+      }
+    });
+
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/sessions/session-1/rollback",
+      {
+        snapshotId: "snapshot-1"
+      },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual(expect.objectContaining({
+      snapshotId: "snapshot-1"
+    }));
+    expect(executeGoalCalls).toContainEqual(expect.objectContaining({
+      options: expect.objectContaining({
+        workspaceRoot: "/workspace",
+        resumeFrom: {
+          sessionId: "session-1",
+          snapshotId: "snapshot-1"
+        }
+      })
+    }));
+  });
 });
 
 async function dispatch(
@@ -386,6 +699,7 @@ function createGatewayServerHarness(
 ): {
   server: GatewayServer;
   session: WorkSession;
+  store: MemoryStore;
   executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }>;
   resumeBlockedSessionCalls: Array<{ sessionId: string; input: unknown }>;
 } {
@@ -505,12 +819,15 @@ function createGatewayServerHarness(
       policyResolution
     ),
     session,
+    store,
     executeGoalCalls,
     resumeBlockedSessionCalls
   };
 }
 
 class MemoryStore implements StateStore {
+  private readonly snapshots = new Map<string, SessionSnapshot[]>();
+
   constructor(private sessions: WorkSession[]) {}
 
   async saveSession(session: WorkSession): Promise<void> {
@@ -531,20 +848,46 @@ class MemoryStore implements StateStore {
     return this.sessions.map((session) => ({
       id: session.id,
       goalId: session.goalId,
+      workspaceId: session.workspaceId,
+      configProfileId: session.configProfileId,
+      ...(session.createdBy ? { createdBy: session.createdBy } : {}),
+      ...(session.taskTitle ? { taskTitle: session.taskTitle } : {}),
       ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
       state: session.state,
       updatedAt: session.updatedAt
     }));
   }
 
-  async saveSnapshot(): Promise<void> {}
-
-  async loadSnapshot(): Promise<SessionSnapshot | null> {
-    return null;
+  async saveSnapshot(sessionId: string, snapshot: SessionSnapshot): Promise<void> {
+    const current = this.snapshots.get(sessionId) ?? [];
+    current.push(structuredClone(snapshot));
+    this.snapshots.set(sessionId, current);
   }
 
-  async listSnapshots(): Promise<SnapshotSummary[]> {
-    return [];
+  async loadSnapshot(sessionId: string, snapshotId?: string): Promise<SessionSnapshot | null> {
+    const snapshots = this.snapshots.get(sessionId) ?? [];
+    if (snapshots.length === 0) {
+      return null;
+    }
+
+    if (!snapshotId) {
+      return structuredClone(
+        [...snapshots].sort((left, right) => right.capturedAt.getTime() - left.capturedAt.getTime())[0]!
+      );
+    }
+
+    const match = snapshots.find((snapshot) => snapshot.snapshotId === snapshotId);
+    return match ? structuredClone(match) : null;
+  }
+
+  async listSnapshots(sessionId: string): Promise<SnapshotSummary[]> {
+    return [...(this.snapshots.get(sessionId) ?? [])]
+      .sort((left, right) => right.capturedAt.getTime() - left.capturedAt.getTime())
+      .map((snapshot) => ({
+        snapshotId: snapshot.snapshotId,
+        capturedAt: snapshot.capturedAt,
+        schemaVersion: snapshot.schemaVersion
+      }));
   }
 
   async saveArtifact(_sessionId: string, _artifact: Artifact): Promise<void> {}

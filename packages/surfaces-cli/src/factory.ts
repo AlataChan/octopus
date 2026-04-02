@@ -9,13 +9,19 @@ import {
 } from "@octopus/adapter-mcp";
 import { ExecutionSubstrate } from "@octopus/exec-substrate";
 import type { ActionHandler } from "@octopus/exec-substrate";
-import { EventBus, TraceWriter, type WorkEvent } from "@octopus/observability";
-import { EmbeddedRuntime, type EmbeddedRuntimeConfig, type ModelClient } from "@octopus/runtime-embedded";
 import { createPolicy, type PolicyResolution, type SecurityPolicy, type SecurityProfileName } from "@octopus/security";
 import { FileStateStore } from "@octopus/state-store";
 import type { ActionType } from "@octopus/work-contracts";
 import { WorkEngine } from "@octopus/work-core";
-import { GatewayServer, type GatewayConfig } from "@octopus/gateway";
+import { EventBus, TraceWriter, type WorkEvent } from "@octopus/observability";
+import { EmbeddedRuntime, type EmbeddedRuntimeConfig, type ModelClient } from "@octopus/runtime-embedded";
+import {
+  GatewayServer,
+  getPermissionsForRole,
+  type GatewayConfig,
+  type GatewayPermission,
+  type GatewayUserAccount
+} from "@octopus/gateway";
 
 export interface LocalAppConfig {
   workspaceRoot: string;
@@ -44,6 +50,7 @@ export interface GatewayConfigSection {
   port: number;
   host: string;
   apiKey: string;
+  users?: GatewayUserAccount[];
   tls?: {
     cert: string;
     key: string;
@@ -187,6 +194,10 @@ function createPolicyEvent<T extends "profile.selected" | "policy.resolved">(
 }
 
 function toGatewayConfig(config: GatewayConfigSection, workspaceRoot: string): GatewayConfig {
+  const defaultPermissions = getPermissionsForRole("admin").filter((permission: GatewayPermission) => (
+    config.enableRuntimeProxy ?? false
+  ) || permission !== "runtime.proxy");
+
   return {
     port: config.port,
     host: config.host,
@@ -195,14 +206,8 @@ function toGatewayConfig(config: GatewayConfigSection, workspaceRoot: string): G
     ...(config.trustProxyCIDRs ? { trustProxyCIDRs: [...config.trustProxyCIDRs] } : {}),
     auth: {
       apiKey: config.apiKey,
-      defaultPermissions: [
-        "sessions.list",
-        "sessions.read",
-        "sessions.control",
-        "sessions.approve",
-        "goals.submit",
-        "config.read"
-      ],
+      ...(config.users ? { users: [...config.users] } : {}),
+      defaultPermissions,
       enableRuntimeProxy: config.enableRuntimeProxy ?? false
     },
     ...(config.backfillEventCount === undefined ? {} : { backfillEventCount: config.backfillEventCount }),

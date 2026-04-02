@@ -50,6 +50,15 @@ export interface ModelClient {
   }): Promise<ModelTurnResult>;
 }
 
+interface LegacySessionSnapshotShape {
+  schemaVersion: number;
+  session: WorkSession;
+  runtimeContext?: {
+    pendingResults?: ActionResult[];
+    contextPayload?: ContextPayload;
+  };
+}
+
 export class EmbeddedRuntime implements AgentRuntime {
   readonly type = "embedded" as const;
 
@@ -72,7 +81,7 @@ export class EmbeddedRuntime implements AgentRuntime {
 
   async pauseSession(): Promise<void> {}
 
-  async resumeSession(sessionId: string, _input?: ResumeInput): Promise<void> {
+  async resumeSession(_sessionId: string, _input?: ResumeInput): Promise<void> {
     // Session recovery is handled by engine via hydrateSession.
     // If session is in memory, it's already available. If not (process restart),
     // engine restores it from snapshot before calling resumeSession.
@@ -103,13 +112,17 @@ export class EmbeddedRuntime implements AgentRuntime {
   }
 
   async hydrateSession(snapshot: SessionSnapshot): Promise<WorkSession> {
-    if (snapshot.schemaVersion !== 2) {
-      throw new Error(`Unsupported snapshot schema version: ${snapshot.schemaVersion}`);
+    const snapshotShape = snapshot as SessionSnapshot | LegacySessionSnapshotShape;
+    if (snapshotShape.schemaVersion !== 1 && snapshotShape.schemaVersion !== 2) {
+      throw new Error(`Unsupported snapshot schema version: ${snapshotShape.schemaVersion}`);
     }
 
-    const { session, runtimeContext } = snapshot;
+    const session = snapshotShape.session;
+    const runtimeContext = snapshotShape.runtimeContext ?? {
+      pendingResults: []
+    };
     this.sessions.set(session.id, session);
-    this.results.set(session.id, runtimeContext.pendingResults);
+    this.results.set(session.id, runtimeContext.pendingResults ?? []);
     if (runtimeContext.contextPayload) {
       this.contexts.set(session.id, runtimeContext.contextPayload);
     } else {

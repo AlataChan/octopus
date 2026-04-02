@@ -20,11 +20,14 @@ export function SessionList({ sessions, selectedSessionId, onSelect, onRefresh }
       </div>
       <ul class="session-list">
         {sessions.map((session) => {
-          const primaryLabel = session.namedGoalId
+          const primaryLabel = session.taskTitle
+            ?? session.namedGoalId
             ?? session.goalSummary
             ?? session.goalId
             ?? toShortSessionId(session.id);
-          const secondaryLabel = session.namedGoalId ? session.goalSummary : undefined;
+          const secondaryLabel = session.goalSummary && session.goalSummary !== primaryLabel
+            ? session.goalSummary
+            : undefined;
 
           return (
             <li key={session.id}>

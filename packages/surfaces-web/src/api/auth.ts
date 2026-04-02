@@ -1,21 +1,86 @@
+export type AuthRole = "viewer" | "operator" | "admin";
+
+export interface AuthSession {
+  token: string;
+  expiresAt: string;
+  role: AuthRole;
+  username: string;
+}
+
 export interface AuthStore {
-  getToken(): string | null;
-  setToken(token: string): void;
+  getSession(): AuthSession | null;
+  setSession(session: AuthSession): void;
   clear(): void;
 }
 
-export class MemoryAuthStore implements AuthStore {
-  private token: string | null = null;
+const sessionStorageKey = "octopus.auth";
 
-  getToken(): string | null {
-    return this.token;
+export class SessionStorageAuthStore implements AuthStore {
+  getSession(): AuthSession | null {
+    if (!isSessionStorageAvailable()) {
+      return null;
+    }
+
+    const raw = window.sessionStorage.getItem(sessionStorageKey);
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<AuthSession>;
+      if (
+        typeof parsed.token === "string"
+        && typeof parsed.expiresAt === "string"
+        && typeof parsed.username === "string"
+        && (parsed.role === "viewer" || parsed.role === "operator" || parsed.role === "admin")
+      ) {
+        return {
+          token: parsed.token,
+          expiresAt: parsed.expiresAt,
+          role: parsed.role,
+          username: parsed.username
+        };
+      }
+    } catch {
+      window.sessionStorage.removeItem(sessionStorageKey);
+    }
+
+    return null;
   }
 
-  setToken(token: string): void {
-    this.token = token;
+  setSession(session: AuthSession): void {
+    if (!isSessionStorageAvailable()) {
+      return;
+    }
+
+    window.sessionStorage.setItem(sessionStorageKey, JSON.stringify(session));
   }
 
   clear(): void {
-    this.token = null;
+    if (!isSessionStorageAvailable()) {
+      return;
+    }
+
+    window.sessionStorage.removeItem(sessionStorageKey);
   }
+}
+
+export class MemoryAuthStore implements AuthStore {
+  private session: AuthSession | null = null;
+
+  getSession(): AuthSession | null {
+    return this.session;
+  }
+
+  setSession(session: AuthSession): void {
+    this.session = session;
+  }
+
+  clear(): void {
+    this.session = null;
+  }
+}
+
+function isSessionStorageAvailable(): boolean {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
 }

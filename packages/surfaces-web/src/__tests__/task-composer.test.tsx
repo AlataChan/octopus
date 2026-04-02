@@ -116,6 +116,27 @@ describe("TaskComposer pack selector", () => {
     });
   });
 
+  it("submits taskTitle separately from namedGoalId", async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    render(<TaskComposer busy={false} onSubmit={onSubmit} />);
+
+    fireEvent.input(screen.getByRole("textbox", { name: /任务标题/i }), {
+      target: { value: "README 摘要" }
+    });
+    fireEvent.input(screen.getByRole("textbox", { name: /任务说明/i }), {
+      target: { value: "读取 README.md 并整理成中文摘要" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /提交任务/ }));
+
+    await vi.waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith({
+        description: "读取 README.md 并整理成中文摘要",
+        taskTitle: "README 摘要"
+      });
+    });
+  });
+
   it("clears pack selection when switching back to custom", () => {
     render(<TaskComposer busy={false} onSubmit={vi.fn(async () => undefined)} />);
 

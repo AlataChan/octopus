@@ -12,17 +12,24 @@ import type { StateStore } from "@octopus/state-store";
 import type { WorkEngine } from "@octopus/work-core";
 
 import { TokenStore } from "./auth.js";
-import { authenticateRequest } from "./middleware/auth-middleware.js";
+import { authenticateRequest, extractCredentials } from "./middleware/auth-middleware.js";
 import { validateOrigin } from "./middleware/origin-guard.js";
 import { isLoopback, isSecureConnection } from "./middleware/tls-guard.js";
 import { handleApproval } from "./routes/approval.js";
 import { handleGetArtifactContent } from "./routes/artifacts.js";
-import { handleMintToken } from "./routes/auth-routes.js";
+import { handleLogin, handleLogout, handleMintToken } from "./routes/auth-routes.js";
+import { handleClarification } from "./routes/clarification.js";
 import { handleControl } from "./routes/control.js";
 import { handleSubmitGoal } from "./routes/goals.js";
 import { handleHealth } from "./routes/health.js";
 import { HttpError, readJsonBody, writeJson, type RouteDeps } from "./routes/shared.js";
-import { handleGetEvents, handleGetSession, handleListSessions, handleListSnapshots } from "./routes/sessions.js";
+import {
+  handleGetEvents,
+  handleGetSession,
+  handleListSessions,
+  handleListSnapshots,
+  handleRollbackSession
+} from "./routes/sessions.js";
 import { handleStatus } from "./routes/status.js";
 import type { GatewayConfig } from "./types.js";
 import { handleEventStreamUpgrade } from "./ws/event-stream.js";
@@ -164,6 +171,11 @@ export class GatewayServer {
         return;
       }
 
+      if (method === "POST" && url.pathname === "/auth/login") {
+        writeJson(res, 200, await handleLogin(deps, await readJsonBody(req)));
+        return;
+      }
+
       const operator = authenticateRequest(req, this.config.auth, this.tokenStore);
       if (!operator) {
         throw new HttpError(401, "Authentication required.");
@@ -171,6 +183,20 @@ export class GatewayServer {
 
       if (method === "POST" && url.pathname === "/auth/token") {
         writeJson(res, 200, await handleMintToken(deps, operator, await readOptionalJsonBody(req)));
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/auth/logout") {
+        const credentials = extractCredentials(req);
+        writeJson(
+          res,
+          200,
+          await handleLogout(
+            deps,
+            operator,
+            credentials?.type === "bearer" ? credentials.token : undefined
+          )
+        );
         return;
       }
 
@@ -192,6 +218,21 @@ export class GatewayServer {
       const snapshotsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/snapshots$/);
       if (method === "GET" && snapshotsMatch) {
         writeJson(res, 200, await handleListSnapshots(deps, operator, decodeURIComponent(snapshotsMatch[1])));
+        return;
+      }
+
+      const rollbackMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/rollback$/);
+      if (method === "POST" && rollbackMatch) {
+        writeJson(
+          res,
+          200,
+          await handleRollbackSession(
+            deps,
+            operator,
+            decodeURIComponent(rollbackMatch[1]),
+            await readOptionalJsonBody(req)
+          )
+        );
         return;
       }
 
@@ -232,6 +273,16 @@ export class GatewayServer {
           res,
           200,
           await handleApproval(deps, operator, decodeURIComponent(approvalMatch[1]), await readJsonBody(req))
+        );
+        return;
+      }
+
+      const clarificationMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/clarification$/);
+      if (method === "POST" && clarificationMatch) {
+        writeJson(
+          res,
+          200,
+          await handleClarification(deps, operator, decodeURIComponent(clarificationMatch[1]), await readJsonBody(req))
         );
         return;
       }

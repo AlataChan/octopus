@@ -28,6 +28,10 @@ import { FileWorkspaceLock, type ReleaseReason, type WorkspaceLock } from "./wor
 
 export interface ExecuteGoalOptions {
   workspaceRoot?: string;
+  workspaceId?: string;
+  configProfileId?: string;
+  createdBy?: string;
+  taskTitle?: string;
   maxIterations?: number;
   resumeFrom?: { sessionId: string; snapshotId?: string };
   partialOverrideGranted?: boolean;
@@ -38,6 +42,9 @@ export interface WorkEngineOptions {
   workspaceLock?: WorkspaceLock;
   mcpTools?: McpToolDescription[];
 }
+
+const COMPLETION_PREDICATE_FAILED_REASON = "Completion predicate failed.";
+const PAUSED_BY_OPERATOR_REASON = "Paused by operator.";
 
 export class WorkEngine {
   private readonly verificationPlugins: VerificationPlugin[];
@@ -60,7 +67,7 @@ export class WorkEngine {
   async executeGoal(goal: WorkGoal, options: ExecuteGoalOptions = {}): Promise<WorkSession> {
     const session = options.resumeFrom
       ? await this.restoreSession(options.resumeFrom, goal)
-      : await this.startSession(goal, options.workspaceRoot);
+      : await this.startSession(goal, options);
 
     const trace = this.captureTrace(session.id);
     let workspaceLockAcquired = false;
@@ -92,10 +99,11 @@ export class WorkEngine {
       throw new Error(`Unknown session: ${sessionId}`);
     }
 
-    transitionSession(session, "blocked", "Paused by operator.");
+    session.blockedReason = buildBlockedReason({ reason: PAUSED_BY_OPERATOR_REASON });
+    transitionSession(session, "blocked", PAUSED_BY_OPERATOR_REASON);
     await this.stateStore.saveSession(session);
     await this.runtime.pauseSession(sessionId);
-    this.emit(session, "session.blocked", "work-core", { reason: "Paused by operator." });
+    this.emit(session, "session.blocked", "work-core", { reason: PAUSED_BY_OPERATOR_REASON });
     await this.captureSnapshot(session);
     return session;
   }
@@ -145,18 +153,22 @@ export class WorkEngine {
     });
   }
 
-  private async startSession(goal: WorkGoal, workspaceRoot?: string): Promise<WorkSession> {
+  private async startSession(goal: WorkGoal, options: ExecuteGoalOptions): Promise<WorkSession> {
     const session = await this.runtime.initSession(goal);
+    session.workspaceId = options.workspaceId ?? session.workspaceId;
+    session.configProfileId = options.configProfileId ?? session.configProfileId;
+    session.createdBy = options.createdBy;
+    session.taskTitle = options.taskTitle;
     session.goalSummary = summarizeGoalDescription(goal.description);
     if (session.items.length === 0) {
       session.items.push(createDefaultWorkItem(session, goal));
     }
 
     transitionSession(session, "active", "Goal accepted.");
-    await this.writeVisibleState(goal, session, workspaceRoot, "Execute next action");
+    await this.writeVisibleState(goal, session, options.workspaceRoot, "Execute next action");
     await this.runtime.loadContext(session.id, {
-      workspaceSummary: workspaceRoot,
-      visibleFiles: workspaceRoot ? await listVisibleFiles(workspaceRoot) : [],
+      workspaceSummary: options.workspaceRoot,
+      visibleFiles: options.workspaceRoot ? await listVisibleFiles(options.workspaceRoot) : [],
       plan: `Goal: ${goal.description}`,
       todo: "Execute next action",
       status: `Session state: ${session.state}`,
@@ -244,6 +256,11 @@ export class WorkEngine {
 
     const decision = this.policy.evaluate(action, mapActionTypeToCategory(action.type));
     if (!decision.allowed) {
+      session.blockedReason = buildBlockedReason({
+        actionId: action.id,
+        reason: decision.reason,
+        riskLevel: decision.riskLevel
+      });
       transitionSession(session, "blocked", decision.reason);
       await this.stateStore.saveSession(session);
       this.emit(session, "session.blocked", "work-core", {
@@ -337,6 +354,7 @@ export class WorkEngine {
     };
 
     if (!isCompletable(evidence)) {
+      session.blockedReason = buildBlockedReason({ reason: "Completion predicate failed." });
       transitionSession(session, "blocked", "Completion predicate failed.");
       await this.stateStore.saveSession(session);
       this.emit(session, "session.blocked", "work-core", { reason: "Completion predicate failed." });
@@ -671,10 +689,29 @@ function computeApprovalKey(action: Action): string {
 
 function buildBlockedReason(payload: EventPayloadByType["session.blocked"]): BlockedReason {
   if (payload.clarification) {
-    return { kind: "clarification-required", question: payload.clarification };
+    return {
+      kind: "clarification-required",
+      question: payload.clarification,
+      ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {})
+    };
   }
-  if (payload.reason === "Completion predicate failed.") {
-    return { kind: "verification-failed", evidence: payload.reason };
+  if (payload.reason === COMPLETION_PREDICATE_FAILED_REASON) {
+    return {
+      kind: "verification-failed",
+      evidence: payload.reason,
+      ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {})
+    };
   }
-  return { kind: "paused-by-operator" };
+  if (payload.reason === PAUSED_BY_OPERATOR_REASON) {
+    return {
+      kind: "paused-by-operator",
+      evidence: payload.reason,
+      ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {})
+    };
+  }
+  return {
+    kind: "system-error",
+    ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {}),
+    ...(payload.reason ? { evidence: payload.reason } : {})
+  };
 }

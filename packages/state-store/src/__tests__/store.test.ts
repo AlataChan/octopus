@@ -81,6 +81,8 @@ describe("FileStateStore", () => {
     expect(loaded?.observations[0]?.createdAt).toBeInstanceOf(Date);
     expect(loaded?.artifacts[0]?.createdAt).toBeInstanceOf(Date);
     expect(loaded?.transitions[0]?.timestamp).toBeInstanceOf(Date);
+    expect(loaded?.workspaceId).toBe("default");
+    expect(loaded?.configProfileId).toBe("default");
     expect("namedGoalId" in (loaded ?? {})).toBe(false);
   });
 
@@ -90,7 +92,12 @@ describe("FileStateStore", () => {
 
     const store = new FileStateStore(root);
     const goal = createWorkGoal({ description: "List sessions", namedGoalId: "daily-report" });
-    const session = createWorkSession(goal);
+    const session = createWorkSession(goal, {
+      workspaceId: "workspace-a",
+      configProfileId: "profile-a",
+      createdBy: "operator-1",
+      taskTitle: "日报任务"
+    });
     session.goalSummary = "List sessions";
     const artifact = {
       id: "artifact-1",
@@ -111,6 +118,10 @@ describe("FileStateStore", () => {
       {
         id: session.id,
         goalId: goal.id,
+        workspaceId: "workspace-a",
+        configProfileId: "profile-a",
+        createdBy: "operator-1",
+        taskTitle: "日报任务",
         namedGoalId: "daily-report",
         goalSummary: "List sessions",
         state: "created",
@@ -139,5 +150,7 @@ describe("FileStateStore", () => {
 
     expect(loaded).not.toBeNull();
     expect(loaded?.goalSummary).toBeUndefined();
+    expect(loaded?.workspaceId).toBe("default");
+    expect(loaded?.configProfileId).toBe("default");
   });
 });

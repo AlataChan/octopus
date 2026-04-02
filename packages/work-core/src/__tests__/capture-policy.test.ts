@@ -40,6 +40,8 @@ describe("WorkEngine snapshot capture policy", () => {
     const session = {
       id: "session-pause",
       goalId: goal.id,
+      workspaceId: "default",
+      configProfileId: "default",
       state: "active" as const,
       items: [],
       observations: [],
@@ -56,6 +58,10 @@ describe("WorkEngine snapshot capture policy", () => {
     await engine.pauseSession(session.id);
 
     expect(runtime.pauseSessionCalls).toBe(1);
+    expect((await store.loadSession(session.id))?.blockedReason).toEqual({
+      kind: "paused-by-operator",
+      evidence: "Paused by operator."
+    });
     await expect(store.listSnapshots(session.id)).resolves.toHaveLength(1);
     expect(events.some((event) => event.type === "snapshot.captured")).toBe(true);
     expect(events.map((event) => event.type)).toEqual(["session.blocked", "snapshot.captured"]);

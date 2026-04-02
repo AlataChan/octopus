@@ -1,9 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 
 import type { WorkEvent } from "@octopus/observability";
+import type { SnapshotSummary } from "@octopus/state-store";
 import type { Artifact, SessionSummary, WorkSession } from "@octopus/work-contracts";
 
-import { GatewayClient, type ApprovalRequest, type EventStreamHandle, type StatusResponse } from "./api/client.js";
+import { GatewayClient, type ApprovalRequest, type StatusResponse } from "./api/client.js";
+import type { AuthSession } from "./api/auth.js";
 import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal.js";
 import { ConnectionStatus } from "./components/ConnectionStatus.js";
 import { LoginForm } from "./components/LoginForm.js";
@@ -25,10 +27,12 @@ export function App() {
 function AppView() {
   const { t, localizeError } = useI18n();
   const [client] = useState(() => new GatewayClient(globalThis.location?.origin ?? "http://127.0.0.1:4321"));
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => client.getAuthSession());
   const [authenticated, setAuthenticated] = useState(client.isAuthenticated());
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<WorkSession | null>(null);
+  const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
   const [events, setEvents] = useState<WorkEvent[]>([]);
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -37,7 +41,6 @@ function AppView() {
   const [busy, setBusy] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [showComposer, setShowComposer] = useState(false);
-  const [streamHandle, setStreamHandle] = useState<EventStreamHandle | null>(null);
   const [artifactPreview, setArtifactPreview] = useState<{
     path: string;
     content: string;
@@ -68,6 +71,9 @@ function AppView() {
       artifacts: selectedSession?.artifacts.length ?? 0
     }
   );
+  const canSubmitTasks = authSession?.role !== "viewer";
+  const canControlSessions = authSession?.role !== "viewer";
+  const canApproveSessions = authSession?.role !== "viewer";
 
   const refreshSessions = async () => {
     const nextSessions = await client.listSessions();
@@ -82,6 +88,10 @@ function AppView() {
 
   const refreshSelectedSession = async (sessionId: string) => {
     setSelectedSession(await client.getSession(sessionId));
+  };
+
+  const refreshSnapshots = async (sessionId: string) => {
+    setSnapshots(await client.listSnapshots(sessionId));
   };
 
   const refreshStatus = async () => {
@@ -106,6 +116,7 @@ function AppView() {
   useEffect(() => {
     if (!authenticated || !selectedSessionId) {
       setSelectedSession(null);
+      setSnapshots([]);
       setEvents([]);
       setApproval(null);
       setConnectionState("disconnected");
@@ -117,7 +128,7 @@ function AppView() {
     setApproval(null);
     setConnectionState("connecting");
 
-    void refreshSelectedSession(selectedSessionId).catch((error) => {
+    void Promise.all([refreshSelectedSession(selectedSessionId), refreshSnapshots(selectedSessionId)]).catch((error) => {
       if (active) {
         setPageError(error instanceof Error ? localizeError(error.message) : t("error.loadSessionFailed"));
       }
@@ -135,8 +146,11 @@ function AppView() {
           || event.type.startsWith("workitem.")
           || event.type === "artifact.emitted"
         ) {
-          void refreshSelectedSession(selectedSessionId).catch(() => undefined);
-          void refreshSessions().catch(() => undefined);
+          void Promise.all([
+            refreshSelectedSession(selectedSessionId),
+            refreshSessions(),
+            refreshSnapshots(selectedSessionId)
+          ]).catch(() => undefined);
         }
       },
       (nextApproval) => {
@@ -155,33 +169,40 @@ function AppView() {
         }
       }
     );
-    setStreamHandle(stream);
 
     return () => {
       active = false;
       stream.detach();
-      setStreamHandle(null);
     };
   }, [authenticated, selectedSessionId]);
 
-  const handleLogin = async (apiKey: string) => {
-    await client.login(apiKey);
+  const handleLogin = async (username: string, password: string) => {
+    const session = await client.login(username, password);
+    setAuthSession(session);
     setAuthenticated(true);
     setPageError(null);
   };
 
-  const handleLogout = () => {
-    client.logout();
-    setAuthenticated(false);
-    setSessions([]);
-    setSelectedSessionId(null);
-    setSelectedSession(null);
-    setEvents([]);
-    setApproval(null);
-    setStatus(null);
-    setPageError(null);
-    setShowComposer(false);
-    setArtifactPreview(null);
+  const handleLogout = async () => {
+    setBusy(true);
+    try {
+      await client.logout();
+      setAuthSession(null);
+      setAuthenticated(false);
+      setSessions([]);
+      setSelectedSessionId(null);
+      setSelectedSession(null);
+      setEvents([]);
+      setApproval(null);
+      setStatus(null);
+      setPageError(null);
+      setShowComposer(false);
+      setArtifactPreview(null);
+    } catch (error) {
+      setPageError(error instanceof Error ? localizeError(error.message) : t("error.gatewayRequestFailed"));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleControl = async (action: "pause" | "resume" | "cancel") => {
@@ -217,11 +238,24 @@ function AppView() {
     }
   };
 
-  const handleClarify = (answer: string) => {
-    streamHandle?.sendClarification(answer);
+  const handleClarify = async (answer: string) => {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await client.submitClarification(selectedSessionId, answer);
+      await refreshSelectedSession(selectedSessionId);
+      setPageError(null);
+    } catch (error) {
+      setPageError(error instanceof Error ? localizeError(error.message) : t("error.sessionControlFailed"));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleSubmitTask = async (input: { description: string; namedGoalId?: string }) => {
+  const handleSubmitTask = async (input: { description: string; namedGoalId?: string; taskTitle?: string }) => {
     setBusy(true);
     try {
       const response = await client.submitGoal(input);
@@ -267,7 +301,29 @@ function AppView() {
     }
   };
 
-  const showComposerPanel = showComposer || !selectedSessionId;
+  const handleRollback = async (snapshotId: string) => {
+    if (!selectedSessionId) {
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const result = await client.rollbackSession(selectedSessionId, snapshotId);
+      setSelectedSessionId(result.sessionId);
+      await Promise.all([
+        refreshSessions(),
+        refreshSelectedSession(result.sessionId),
+        refreshSnapshots(result.sessionId)
+      ]);
+      setPageError(null);
+    } catch (error) {
+      setPageError(error instanceof Error ? localizeError(error.message) : t("error.sessionControlFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const showComposerPanel = canSubmitTasks && (showComposer || !selectedSessionId);
 
   if (!authenticated) {
     return (
@@ -287,13 +343,17 @@ function AppView() {
           {pageError ? <p class="error-text">{pageError}</p> : null}
         </div>
         <div class="app-toolbar">
-          <button type="button" class="button-primary" onClick={() => setShowComposer(true)}>
-            {t("app.newTask")}
-          </button>
+          {canSubmitTasks ? (
+            <button type="button" class="button-primary" onClick={() => setShowComposer(true)}>
+              {t("app.newTask")}
+            </button>
+          ) : null}
           <ConnectionStatus
             state={connectionState}
             onToggleStatus={() => setShowStatus((current) => !current)}
-            onLogout={handleLogout}
+            onLogout={() => {
+              void handleLogout();
+            }}
           />
         </div>
       </header>
@@ -345,12 +405,14 @@ function AppView() {
             <SessionDetail
               session={selectedSession}
               events={events}
+              snapshots={snapshots}
               approval={approval}
               busy={busy}
-              onControl={handleControl}
+              onControl={canControlSessions ? handleControl : undefined}
               onPreviewArtifact={handlePreviewArtifact}
-              onResolveApproval={handleResolveApproval}
-              onClarify={handleClarify}
+              onResolveApproval={canApproveSessions ? handleResolveApproval : undefined}
+              onClarify={canApproveSessions ? handleClarify : undefined}
+              onRollback={canControlSessions ? handleRollback : undefined}
             />
           ) : null}
         </div>

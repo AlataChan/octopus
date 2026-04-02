@@ -48,6 +48,7 @@ export function authenticateRequest(
 
     return {
       operatorId: "operator",
+      role: "admin",
       permissions: [...config.defaultPermissions],
       authMethod: "api-key"
     };

@@ -1,0 +1,33 @@
+services:
+  gateway:
+    build:
+      context: .
+      target: gateway-runner
+    env_file:
+      - .env
+    environment:
+      OCTOPUS_GATEWAY_HOST: 0.0.0.0
+      OCTOPUS_GATEWAY_PORT: 4321
+    volumes:
+      - ${OCTOPUS_WORKSPACE:-./workspace}:/workspace
+    expose:
+      - "4321"
+    networks:
+      - octopus-release
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web-runner
+    depends_on:
+      - gateway
+    ports:
+      - "${OCTOPUS_WEB_PORT:-8080}:80"
+    networks:
+      - octopus-release
+    restart: unless-stopped
+
+networks:
+  octopus-release:
+    driver: bridge

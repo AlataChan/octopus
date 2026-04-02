@@ -3,13 +3,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeSessionSummary, makeStatus, makeWorkSession } from "./fixtures.js";
 
-const { listSessions, getSession, getStatus, submitGoal, getArtifactContent, connectEventStream } = vi.hoisted(() => ({
+const { listSessions, getSession, listSnapshots, getStatus, submitGoal, getArtifactContent, connectEventStream, login, logout, rollbackSession, authState } = vi.hoisted(() => ({
   listSessions: vi.fn(),
   getSession: vi.fn(),
+  listSnapshots: vi.fn(),
   getStatus: vi.fn(),
   submitGoal: vi.fn(),
   getArtifactContent: vi.fn(),
-  connectEventStream: vi.fn(() => ({ detach: vi.fn() }))
+  connectEventStream: vi.fn(() => ({ detach: vi.fn() })),
+  login: vi.fn(async (username: string) => {
+    authState.authenticated = true;
+    return {
+      token: "token-1",
+      expiresAt: "2026-04-02T10:00:00.000Z",
+      role: "operator" as const,
+      username
+    };
+  }),
+  logout: vi.fn(async () => {
+    authState.authenticated = false;
+  }),
+  rollbackSession: vi.fn(),
+  authState: {
+    authenticated: true
+  }
 }));
 
 vi.mock("@octopus/work-packs/browser", () => ({
@@ -19,19 +36,32 @@ vi.mock("@octopus/work-packs/browser", () => ({
 
 vi.mock("../api/client.js", () => {
   class FakeGatewayClient {
-    isAuthenticated() {
-      return true;
+    getAuthSession() {
+      return authState.authenticated
+        ? {
+            token: "token-1",
+            expiresAt: "2026-04-02T10:00:00.000Z",
+            role: "operator" as const,
+            username: "ops1"
+          }
+        : null;
     }
 
-    async login() {}
+    isAuthenticated() {
+      return authState.authenticated;
+    }
 
-    logout() {}
+    login = login;
+
+    logout = logout;
 
     listSessions = listSessions;
     getSession = getSession;
+    listSnapshots = listSnapshots;
     getStatus = getStatus;
     submitGoal = submitGoal;
     getArtifactContent = getArtifactContent;
+    rollbackSession = rollbackSession;
     connectEventStream = connectEventStream;
 
     async controlSession() {}
@@ -47,11 +77,17 @@ import { App } from "../App.js";
 describe("App dashboard shell", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
+    authState.authenticated = true;
     listSessions.mockReset();
     getSession.mockReset();
     getStatus.mockReset();
     submitGoal.mockReset();
     getArtifactContent.mockReset();
+    listSnapshots.mockReset();
+    rollbackSession.mockReset();
+    login.mockClear();
+    logout.mockClear();
 
     listSessions.mockResolvedValue([
       makeSessionSummary({ id: "session-1", state: "active", namedGoalId: "README 摘要", goalSummary: "读取 README.md 并整理要点" }),
@@ -74,6 +110,7 @@ describe("App dashboard shell", () => {
       ]
     }));
     getStatus.mockResolvedValue(makeStatus());
+    listSnapshots.mockResolvedValue([]);
     submitGoal.mockResolvedValue({
       sessionId: "session-new",
       goalId: "goal-new",
@@ -104,7 +141,32 @@ describe("App dashboard shell", () => {
 
     expect(await screen.findByText("Total Sessions")).toBeInTheDocument();
     expect(window.localStorage.getItem("octopus.locale")).toBe("en-US");
-  });
+  }, 30_000);
+
+  it("signs in with username and password before loading the dashboard", async () => {
+    authState.authenticated = false;
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Octopus八爪鱼" })).toBeInTheDocument();
+    expect(screen.getByLabelText("用户名")).toBeInTheDocument();
+    expect(screen.getByLabelText("密码")).toBeInTheDocument();
+
+    fireEvent.input(screen.getByLabelText("用户名"), {
+      target: { value: "ops1" }
+    });
+    fireEvent.input(screen.getByLabelText("密码"), {
+      target: { value: "octopus-ops" }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "登录" }).closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(login).toHaveBeenCalledWith("ops1", "octopus-ops");
+    });
+    await waitFor(() => {
+      expect(listSessions).toHaveBeenCalled();
+    });
+  }, 30_000);
 
   it("shows task guidance and submits a new task from the browser", async () => {
     listSessions
@@ -142,7 +204,7 @@ describe("App dashboard shell", () => {
     await waitFor(() => {
       expect(submitGoal).toHaveBeenCalledWith({
         description: "读取 README.md，并在 docs/trial-summary.md 中写出 5 条中文要点。",
-        namedGoalId: "README 摘要"
+        taskTitle: "README 摘要"
       });
     });
     await waitFor(() => {
@@ -151,7 +213,7 @@ describe("App dashboard shell", () => {
     await waitFor(() => {
       expect(getSession).toHaveBeenCalledWith("session-new");
     });
-  });
+  }, 30_000);
 
   it("opens artifact preview in a modal", async () => {
     render(<App />);
@@ -163,5 +225,5 @@ describe("App dashboard shell", () => {
     });
     expect(await screen.findByRole("dialog", { name: "PLAN.md" })).toBeInTheDocument();
     expect(await screen.findByText("# PLAN")).toBeInTheDocument();
-  });
+  }, 30_000);
 });

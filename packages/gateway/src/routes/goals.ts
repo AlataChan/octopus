@@ -9,6 +9,7 @@ export interface GoalSubmissionBody {
   description?: string;
   constraints?: string[];
   namedGoalId?: string;
+  taskTitle?: string;
 }
 
 export interface GoalSubmissionResponse {
@@ -33,7 +34,16 @@ export async function handleSubmitGoal(
     constraints: body.constraints ?? [],
     namedGoalId: body.namedGoalId
   });
-  const session = await deps.engine.executeGoal(goal, { workspaceRoot: deps.workspaceRoot });
+  const taskTitle = typeof body.taskTitle === "string" && body.taskTitle.trim().length > 0
+    ? body.taskTitle.trim()
+    : undefined;
+  const session = await deps.engine.executeGoal(goal, {
+    workspaceRoot: deps.workspaceRoot,
+    workspaceId: "default",
+    configProfileId: "default",
+    createdBy: operator.operatorId,
+    ...(taskTitle ? { taskTitle } : {})
+  });
 
   deps.eventBus.emit({
     id: randomUUID(),

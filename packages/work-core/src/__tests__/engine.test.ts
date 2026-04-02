@@ -80,6 +80,43 @@ describe("WorkEngine", () => {
     expect(store.sessions.at(-1)?.state).toBe("blocked");
   });
 
+  it("preserves riskLevel when policy denies an action", async () => {
+    const goal = createWorkGoal({ description: "Run rm" });
+    const runtime = new FakeRuntime([
+      {
+        kind: "action",
+        action: createAction("shell", { executable: "rm", args: ["-rf", "/tmp/test"] })
+      }
+    ]);
+    const store = new MemoryStateStore();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      store,
+      new EventBus(),
+      {
+        evaluate() {
+          return {
+            allowed: false,
+            requiresConfirmation: false,
+            riskLevel: "dangerous",
+            reason: "Denied by policy."
+          };
+        },
+        approveForSession() {}
+      }
+    );
+
+    const session = await engine.executeGoal(goal);
+
+    expect(session.state).toBe("blocked");
+    expect(session.blockedReason).toEqual({
+      kind: "system-error",
+      evidence: "Denied by policy.",
+      riskLevel: "dangerous"
+    });
+  });
+
   it("releases the workspace lock when policy blocks an action", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-work-core-"));
     tempDirs.push(workspaceRoot);
@@ -131,6 +168,10 @@ describe("WorkEngine", () => {
     const session = await engine.executeGoal(goal, { workspaceRoot });
 
     expect(session.state).toBe("blocked");
+    expect(session.blockedReason).toEqual({
+      kind: "system-error",
+      evidence: "Need clarification"
+    });
     expect(lock.acquired).toHaveLength(1);
     expect(lock.released).toEqual([
       {
@@ -165,6 +206,10 @@ describe("WorkEngine", () => {
     const session = await engine.executeGoal(goal);
 
     expect(session.state).toBe("blocked");
+    expect(session.blockedReason).toEqual({
+      kind: "verification-failed",
+      evidence: "Completion predicate failed."
+    });
     expect(session.transitions.map((transition) => transition.to)).not.toContain("completed");
     expect(session.transitions.at(-1)?.reason).toBe("Completion predicate failed.");
   });
@@ -441,6 +486,8 @@ class FakeRuntime implements AgentRuntime {
       session: {
         id: sessionId,
         goalId: "goal-1",
+        workspaceId: "default",
+        configProfileId: "default",
         state: "blocked",
         items: [],
         observations: [],
@@ -487,6 +534,10 @@ class MemoryStateStore implements StateStore {
     return this.sessions.map((session) => ({
       id: session.id,
       goalId: session.goalId,
+      workspaceId: session.workspaceId,
+      configProfileId: session.configProfileId,
+      ...(session.createdBy ? { createdBy: session.createdBy } : {}),
+      ...(session.taskTitle ? { taskTitle: session.taskTitle } : {}),
       ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
       ...(session.goalSummary ? { goalSummary: session.goalSummary } : {}),
       state: session.state,

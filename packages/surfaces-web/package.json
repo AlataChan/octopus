@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,6 +14,7 @@
   },
   "dependencies": {
     "@octopus/observability": "workspace:*",
+    "@octopus/state-store": "workspace:*",
     "@octopus/work-contracts": "workspace:*",
     "@octopus/work-packs": "workspace:*",
     "preact": "^10.27.2"

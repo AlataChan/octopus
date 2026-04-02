@@ -77,7 +77,7 @@ Typical goals:
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js >= 20, pnpm >= 10
+# Prerequisites: Node.js >= 20.19, pnpm >= 10
 git clone <repo-url> octopus
 cd octopus
 pnpm install
@@ -88,9 +88,68 @@ pnpm test
 # Type check
 pnpm run type-check
 
-# Start a work session (requires API key configuration)
-npx octopus run "describe your goal here"
+# Build the CLI bundle
+pnpm build
+
+# Configure runtime access
+node packages/surfaces-cli/dist/index.js init
+
+# Start a work session
+node packages/surfaces-cli/dist/index.js run "describe your goal here"
 ```
+
+## Single-Tenant Control Console
+
+The release baseline ships a browser control console for one internal team, one shared workspace, and one default model/MCP profile.
+
+Browser login uses static users from `OCTOPUS_USERS_JSON` and short-lived session tokens. The gateway bootstrap API key remains available for CLI/bootstrap flows only.
+
+Relevant browser flows:
+
+- username/password login
+- task publish with title + instruction
+- blocked-session clarification and approval
+- artifact preview
+- checkpoint visibility and rollback
+- system health, role, and audit visibility
+
+## Release Configuration
+
+The gateway and runtime can be configured from environment variables:
+
+- `OCTOPUS_MODEL`
+- `OCTOPUS_API_KEY`
+- `OCTOPUS_ALLOW_MODEL_API_CALL=true`
+- `OCTOPUS_GATEWAY_API_KEY`
+- `OCTOPUS_GATEWAY_HOST`
+- `OCTOPUS_GATEWAY_PORT`
+- `OCTOPUS_USERS_JSON`
+
+See [`.env.example`](./.env.example) for the full shape.
+
+## Release Deployment
+
+Containerized release path:
+
+```bash
+cp .env.example .env
+mkdir -p workspace
+docker compose -f docker-compose.release.yml up --build -d
+```
+
+This starts:
+
+- `gateway`: the Octopus runtime + API service
+- `web`: nginx serving the built Preact console and proxying `/auth`, `/api`, `/ws`, and `/health` to the gateway
+
+Runbook:
+
+- [`docs/runbooks/single-tenant-release.md`](./docs/runbooks/single-tenant-release.md)
+
+UAT assets:
+
+- [`docs/uat/single-tenant-release-checklist.md`](./docs/uat/single-tenant-release-checklist.md)
+- [`docs/uat/single-tenant-release-signoff.md`](./docs/uat/single-tenant-release-signoff.md)
 
 ## Configuration
 
@@ -155,6 +214,9 @@ pnpm run lint
 
 # Format check
 pnpm run format
+
+# Release gates
+pnpm run release:verify
 ```
 
 ## License

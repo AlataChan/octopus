@@ -15,6 +15,8 @@ function makeSession(overrides: Partial<WorkSession> = {}): WorkSession {
   return {
     id: "test-session",
     goalId: "test-goal",
+    workspaceId: "default",
+    configProfileId: "default",
     state: "completed",
     items: [],
     observations: [],
@@ -95,10 +97,12 @@ describe("evaluateAssertions", () => {
   it("file-exists rejects path traversal", async () => {
     const dir = await mkdtemp(join(tmpdir(), "eval-scorer-"));
     tempDirs.push(dir);
-    expect(() => evaluateAssertions(
-      [{ type: "file-exists", path: "../../../etc/passwd" }],
-      { workspaceRoot: dir, session: makeSession() }
-    )).rejects.toThrow("escapes workspace");
+    await expect(
+      evaluateAssertions(
+        [{ type: "file-exists", path: "../../../etc/passwd" }],
+        { workspaceRoot: dir, session: makeSession() }
+      )
+    ).rejects.toThrow("escapes workspace");
   });
 
   it("shell-passes passes on exit 0", async () => {

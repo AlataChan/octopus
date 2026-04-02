@@ -1,4 +1,5 @@
 import type { WorkEvent } from "@octopus/observability";
+import type { SnapshotSummary } from "@octopus/state-store";
 import type { Artifact, WorkSession } from "@octopus/work-contracts";
 
 import type { ApprovalRequest } from "../api/client.js";
@@ -11,28 +12,29 @@ import { EventStream } from "./EventStream.js";
 interface SessionDetailProps {
   session: WorkSession | null;
   events: WorkEvent[];
+  snapshots?: SnapshotSummary[];
   approval: ApprovalRequest | null;
   busy: boolean;
-  onControl: (action: "pause" | "cancel") => Promise<void>;
+  onControl?: (action: "pause" | "resume" | "cancel") => Promise<void>;
   onPreviewArtifact: (artifact: Artifact) => Promise<void>;
-  onResolveApproval: (action: "approve" | "deny") => Promise<void>;
+  onResolveApproval?: (action: "approve" | "deny") => Promise<void>;
   onClarify?: (answer: string) => void;
+  onRollback?: (snapshotId: string) => Promise<void>;
 }
 
 export function SessionDetail({
   session,
   events,
+  snapshots = [],
   approval,
   busy,
   onControl,
   onPreviewArtifact,
   onResolveApproval,
-  onClarify
+  onClarify,
+  onRollback
 }: SessionDetailProps) {
   const { t, tArtifactType, tSessionState, tWorkItemState, formatDateTime } = useI18n();
-  const blockedReason = session?.transitions
-    .filter((transition) => transition.to === "blocked")
-    .at(-1)?.reason ?? session?.transitions.at(-1)?.reason;
 
   if (!session) {
     return (
@@ -41,6 +43,11 @@ export function SessionDetail({
       </section>
     );
   }
+
+  const blockedReason = resolveBlockedReason(session, {
+    unknownReason: t("sessionDetail.blockedUnknownReason"),
+    pendingApproval: t("approval.pending")
+  });
 
   return (
     <section class="detail-panel">
@@ -55,7 +62,7 @@ export function SessionDetail({
         <div class="session-kv-grid">
           <div class="session-kv">
             <span>{t("sessionDetail.taskTitle")}</span>
-            <strong>{session.namedGoalId ?? session.goalSummary ?? session.goalId ?? session.id}</strong>
+            <strong>{session.taskTitle ?? session.namedGoalId ?? session.goalSummary ?? session.goalId ?? session.id}</strong>
           </div>
           <div class="session-kv">
             <span>{t("sessionDetail.taskSummary")}</span>
@@ -162,7 +169,50 @@ export function SessionDetail({
         </ul>
       </div>
 
-      <ControlBar busy={busy} onControl={onControl} />
+      <div class="card section-card">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">{t("event.activity")}</p>
+            <h3>{t("sessionDetail.checkpoints")}</h3>
+          </div>
+          <span>{snapshots.length}</span>
+        </div>
+        <div class="session-kv-grid">
+          <div class="session-kv">
+            <span>{t("sessionDetail.latestCheckpoint")}</span>
+            <strong>{snapshots[0] ? formatDateTime(snapshots[0].capturedAt) : t("sessionDetail.noCheckpoints")}</strong>
+          </div>
+          <div class="session-kv">
+            <span>{t("event.recentActivity")}</span>
+            <strong>{`${events.length} ${t("sessionDetail.auditCountSuffix")}`}</strong>
+          </div>
+        </div>
+        {snapshots.length > 0 ? (
+          <ul class="data-list">
+            {snapshots.map((snapshot) => (
+              <li key={snapshot.snapshotId} class="data-list-item">
+                <div class="artifact-copy">
+                  <span>{snapshot.snapshotId}</span>
+                  <span class="session-meta">{formatDateTime(snapshot.capturedAt)}</span>
+                </div>
+                {onRollback ? (
+                  <button
+                    type="button"
+                    class="button-ghost"
+                    disabled={busy}
+                    aria-label={`${t("sessionDetail.rollbackPrefix")} ${snapshot.snapshotId}`}
+                    onClick={() => void onRollback(snapshot.snapshotId)}
+                  >
+                    {`${t("sessionDetail.rollbackPrefix")} ${snapshot.snapshotId}`}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <ControlBar busy={busy} sessionState={session.state} onControl={onControl} />
       <ApprovalDialog approval={approval} onResolve={onResolveApproval} />
       <EventStream events={events} />
     </section>
@@ -176,4 +226,33 @@ function isPreviewableArtifact(artifact: Artifact): boolean {
     || artifact.type === "patch"
     || artifact.type === "document"
     || artifact.type === "runbook";
+}
+
+function resolveBlockedReason(
+  session: WorkSession,
+  labels: {
+    unknownReason: string;
+    pendingApproval: string;
+  }
+): string {
+  const transitionReason = session.transitions
+    .filter((transition) => transition.to === "blocked")
+    .at(-1)?.reason ?? session.transitions.at(-1)?.reason;
+  if (transitionReason) {
+    return transitionReason;
+  }
+
+  if (session.blockedReason?.kind === "clarification-required") {
+    return session.blockedReason.question ?? labels.unknownReason;
+  }
+
+  if (session.blockedReason?.kind === "approval-required") {
+    return labels.pendingApproval;
+  }
+
+  if (session.blockedReason?.evidence) {
+    return session.blockedReason.evidence;
+  }
+
+  return labels.unknownReason;
 }

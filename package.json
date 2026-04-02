@@ -4,14 +4,15 @@
   "type": "module",
   "packageManager": "pnpm@10.27.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "build": "pnpm -r build",
-    "type-check": "tsc --noEmit -p tsconfig.json",
+    "type-check": "pnpm -r --filter './packages/*' type-check",
     "test": "vitest run --config vitest.config.ts",
     "lint": "eslint .",
-    "format": "prettier --check ."
+    "format": "prettier --check .",
+    "release:verify": "pnpm run type-check && pnpm lint && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.46.1",

@@ -7,14 +7,24 @@ export type GatewayPermission =
   | "runtime.proxy"
   | "config.read";
 
+export type GatewayRole = "viewer" | "operator" | "admin";
+
+export interface GatewayUserAccount {
+  username: string;
+  passwordHash: string;
+  role: GatewayRole;
+}
+
 export interface OperatorContext {
   operatorId: string;
+  role: GatewayRole;
   permissions: GatewayPermission[];
   authMethod: "api-key" | "session-token";
 }
 
 export interface GatewayAuthConfig {
   apiKey: string;
+  users?: GatewayUserAccount[];
   sessionTokenTtlMs?: number;
   defaultPermissions: GatewayPermission[];
   enableRuntimeProxy?: boolean;

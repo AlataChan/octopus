@@ -681,9 +681,13 @@ export function createDefaultConfig(workspaceRoot: string, modelClient: ModelCli
   const configPath = join(dataDir, "config.json");
   const { config: fileConfig, issues: fileConfigIssues } = readFileConfig(configPath);
   const configIssues = [...fileConfigIssues];
+  const { users: envUsers, issue: envUsersIssue } = readGatewayUsers(process.env.OCTOPUS_USERS_JSON);
   const envProviderIssue = createUnsupportedProviderIssue("OCTOPUS_PROVIDER", process.env.OCTOPUS_PROVIDER);
   if (envProviderIssue) {
     configIssues.push(envProviderIssue);
+  }
+  if (envUsersIssue) {
+    configIssues.push(envUsersIssue);
   }
 
   return {
@@ -700,14 +704,29 @@ export function createDefaultConfig(workspaceRoot: string, modelClient: ModelCli
     },
     profile: readProfile(process.env.OCTOPUS_PROFILE) ?? fileConfig.profile ?? "safe-local",
     gateway: {
-      port: fileConfig.gateway?.port ?? 4_321,
-      host: fileConfig.gateway?.host ?? "127.0.0.1",
-      apiKey: fileConfig.gateway?.apiKey ?? "",
+      port: readNumber(process.env.OCTOPUS_GATEWAY_PORT) ?? fileConfig.gateway?.port ?? 4_321,
+      host: process.env.OCTOPUS_GATEWAY_HOST ?? fileConfig.gateway?.host ?? "127.0.0.1",
+      apiKey: process.env.OCTOPUS_GATEWAY_API_KEY ?? fileConfig.gateway?.apiKey ?? "",
+      ...(envUsers ? { users: envUsers } : {}),
       ...(fileConfig.gateway?.tls ? { tls: fileConfig.gateway.tls } : {}),
-      ...(fileConfig.gateway?.trustProxyCIDRs ? { trustProxyCIDRs: fileConfig.gateway.trustProxyCIDRs } : {}),
-      ...(fileConfig.gateway?.enableRuntimeProxy === undefined
+      ...(
+        readGatewayCidrs(process.env.OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS)
+        ?? fileConfig.gateway?.trustProxyCIDRs
+        ? {
+            trustProxyCIDRs: readGatewayCidrs(process.env.OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS)
+              ?? fileConfig.gateway?.trustProxyCIDRs
+          }
+        : {}
+      ),
+      ...(
+        readBoolean(process.env.OCTOPUS_GATEWAY_ENABLE_RUNTIME_PROXY)
+        ?? fileConfig.gateway?.enableRuntimeProxy
+      ) === undefined
         ? {}
-        : { enableRuntimeProxy: fileConfig.gateway.enableRuntimeProxy })
+        : {
+            enableRuntimeProxy: readBoolean(process.env.OCTOPUS_GATEWAY_ENABLE_RUNTIME_PROXY)
+              ?? fileConfig.gateway?.enableRuntimeProxy
+          }
     },
     ...(configIssues.length > 0 ? { configIssues } : {}),
     ...(fileConfig.mcp ? { mcp: fileConfig.mcp } : {}),
@@ -732,6 +751,7 @@ function describeConfig(config: LocalAppConfig) {
       port: config.gateway?.port ?? 4_321,
       host: config.gateway?.host ?? "127.0.0.1",
       apiKeyConfigured: Boolean(config.gateway?.apiKey?.trim()),
+      browserUsersConfigured: config.gateway?.users?.length ?? 0,
       trustProxyCIDRs: config.gateway?.trustProxyCIDRs ?? [],
       enableRuntimeProxy: config.gateway?.enableRuntimeProxy ?? false
     },
@@ -1013,6 +1033,69 @@ function readGatewayConfig(value: unknown): StoredGatewayConfig | undefined {
     ...(trustProxyCIDRs ? { trustProxyCIDRs } : {}),
     ...(enableRuntimeProxy === undefined ? {} : { enableRuntimeProxy })
   };
+}
+
+function readGatewayUsers(raw: string | undefined): {
+  users?: GatewayConfigSection["users"];
+  issue?: string;
+} {
+  if (!raw || raw.trim().length === 0) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return {
+        issue: "OCTOPUS_USERS_JSON must be a JSON array of {username,passwordHash,role}"
+      };
+    }
+
+    const users = parsed.flatMap((entry) => {
+      if (
+        typeof entry === "object"
+        && entry !== null
+        && !Array.isArray(entry)
+        && typeof entry.username === "string"
+        && typeof entry.passwordHash === "string"
+        && (entry.role === "viewer" || entry.role === "operator" || entry.role === "admin")
+      ) {
+        return [{
+          username: entry.username,
+          passwordHash: entry.passwordHash,
+          role: entry.role
+        }];
+      }
+      return [];
+    });
+
+    if (users.length !== parsed.length) {
+      return {
+        issue: "OCTOPUS_USERS_JSON entries must include username, passwordHash, and role"
+      };
+    }
+
+    return {
+      users
+    };
+  } catch {
+    return {
+      issue: "OCTOPUS_USERS_JSON must be valid JSON"
+    };
+  }
+}
+
+function readGatewayCidrs(raw: string | undefined): string[] | undefined {
+  if (!raw || raw.trim().length === 0) {
+    return undefined;
+  }
+
+  const values = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  return values.length > 0 ? values : undefined;
 }
 
 function readTlsConfig(value: unknown): GatewayConfigSection["tls"] | undefined {

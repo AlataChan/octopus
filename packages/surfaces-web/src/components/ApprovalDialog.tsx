@@ -3,13 +3,13 @@ import { useI18n } from "../i18n/useI18n.js";
 
 interface ApprovalDialogProps {
   approval: ApprovalRequest | null;
-  onResolve: (action: "approve" | "deny") => Promise<void>;
+  onResolve?: (action: "approve" | "deny") => Promise<void>;
 }
 
 export function ApprovalDialog({ approval, onResolve }: ApprovalDialogProps) {
   const { t, tRiskLevel } = useI18n();
 
-  if (!approval) {
+  if (!approval || !onResolve) {
     return null;
   }
 

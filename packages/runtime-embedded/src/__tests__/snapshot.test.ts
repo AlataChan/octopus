@@ -94,6 +94,8 @@ describe("EmbeddedRuntime snapshots", () => {
       session: {
         id: "session-1",
         goalId: "goal-1",
+        workspaceId: "default",
+        configProfileId: "default",
         namedGoalId: "daily-report",
         state: "blocked",
         items: [],
@@ -113,6 +115,57 @@ describe("EmbeddedRuntime snapshots", () => {
 
     expect(restored.id).toBe("session-1");
     const response = await runtime.requestNextAction("session-1");
+    expect(response.kind).toBe("completion");
+  });
+
+  it("hydrates legacy v1 snapshots by defaulting missing runtime context", async () => {
+    const runtime = new EmbeddedRuntime(
+      {
+        provider: "openai-compatible",
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      {
+        async completeTurn(input) {
+          expect(input.context).toBeUndefined();
+          expect(input.results).toEqual([]);
+          return {
+            response: createCompletionResponse("restored"),
+            telemetry: {
+              endpoint: "https://openrouter.ai/api/v1/chat/completions",
+              durationMs: 1,
+              success: true
+            }
+          };
+        }
+      },
+      new EventBus()
+    );
+
+    const restored = await runtime.hydrateSession({
+      schemaVersion: 1,
+      snapshotId: "legacy-snapshot-1",
+      capturedAt: new Date("2026-03-17T00:00:00.000Z"),
+      session: {
+        id: "session-legacy",
+        goalId: "goal-legacy",
+        workspaceId: "default",
+        configProfileId: "default",
+        state: "blocked",
+        items: [],
+        observations: [],
+        artifacts: [],
+        transitions: [],
+        createdAt: new Date("2026-03-17T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-17T00:00:00.000Z")
+      }
+    } as never);
+
+    expect(restored.id).toBe("session-legacy");
+    const response = await runtime.requestNextAction("session-legacy");
     expect(response.kind).toBe("completion");
   });
 });

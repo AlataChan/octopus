@@ -8,12 +8,17 @@ export async function handleStatus(deps: RouteDeps, operator: OperatorContext) {
   return {
     profile: deps.profileName,
     apiKeyConfigured: deps.config.auth.apiKey.length > 0,
+    browserLoginConfigured: (deps.config.auth.users?.length ?? 0) > 0,
+    configuredUsers: deps.config.auth.users?.length ?? 0,
     tlsEnabled: Boolean(deps.config.tls),
     trustProxyCIDRs: deps.config.trustProxyCIDRs ?? [],
     host: deps.config.host,
     port: deps.config.port,
     allowRemote: deps.policyResolution.allowRemote ?? false,
     activeSessionCount: sessions.length,
-    connectedClients: deps.connectedClientsCount ?? 0
+    connectedClients: deps.connectedClientsCount ?? 0,
+    traceStreamingAvailable: Boolean(deps.traceReader),
+    currentRole: operator.role,
+    currentOperator: operator.operatorId
   };
 }

@@ -125,8 +125,14 @@ function createEvent(namedGoalId: string, sourceType: AutomationEvent["sourceTyp
   };
 }
 
-function createSessionSummary(input: SessionSummary): SessionSummary {
-  return input;
+function createSessionSummary(
+  input: Pick<SessionSummary, "id" | "goalId" | "state" | "updatedAt"> & Partial<SessionSummary>
+): SessionSummary {
+  return {
+    workspaceId: "default",
+    configProfileId: "default",
+    ...input
+  };
 }
 
 function createStateStore(sessions: SessionSummary[]) {
@@ -168,6 +174,8 @@ function createEngineDouble() {
       return {
         id: "session-created",
         goalId: goal.id,
+        workspaceId: "default",
+        configProfileId: "default",
         namedGoalId: goal.namedGoalId,
         state: "active",
         items: [],

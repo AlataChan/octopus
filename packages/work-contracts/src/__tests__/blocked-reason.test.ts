@@ -40,6 +40,16 @@ describe("BlockedReason", () => {
     expect(reason.verificationDetails).toHaveLength(1);
     expect(reason.verificationDetails![0].passed).toBe(false);
   });
+
+  it("accepts system-error kind with preserved evidence", () => {
+    const reason: BlockedReason = {
+      kind: "system-error",
+      evidence: "Model returned malformed runtime JSON."
+    };
+
+    expect(reason.kind).toBe("system-error");
+    expect(reason.evidence).toBe("Model returned malformed runtime JSON.");
+  });
 });
 
 describe("RiskLevel (source of truth in work-contracts)", () => {

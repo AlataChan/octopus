@@ -126,7 +126,8 @@ export type BlockedKind =
   | "clarification-required"
   | "approval-required"
   | "verification-failed"
-  | "paused-by-operator";
+  | "paused-by-operator"
+  | "system-error";
 
 export interface ApprovalFingerprint {
   actionId: string;
@@ -146,6 +147,10 @@ export interface BlockedReason {
 export interface WorkSession {
   id: string;
   goalId: string;
+  workspaceId: string;
+  configProfileId: string;
+  createdBy?: string;
+  taskTitle?: string;
   namedGoalId?: string;
   goalSummary?: string;
   state: SessionState;
@@ -161,6 +166,10 @@ export interface WorkSession {
 export interface SessionSummary {
   id: string;
   goalId: string;
+  workspaceId: string;
+  configProfileId: string;
+  createdBy?: string;
+  taskTitle?: string;
   namedGoalId?: string;
   goalSummary?: string;
   state: SessionState;

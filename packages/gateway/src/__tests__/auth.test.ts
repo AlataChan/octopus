@@ -3,7 +3,14 @@ import type { IncomingMessage } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as authModule from "../auth.js";
-import { TokenStore, validateApiKey } from "../auth.js";
+import {
+  authenticateUser,
+  createPasswordHash,
+  getPermissionsForRole,
+  TokenStore,
+  validateApiKey,
+  verifyPasswordHash
+} from "../auth.js";
 import { authenticateRequest, extractCredentials, requirePermission } from "../middleware/auth-middleware.js";
 import { validateOrigin } from "../middleware/origin-guard.js";
 import { isInCIDRRange, isLoopback, isSecureConnection } from "../middleware/tls-guard.js";
@@ -38,6 +45,7 @@ describe("gateway auth foundation", () => {
 
     expect(store.validateToken(token)).toEqual({
       operatorId: "operator-1",
+      role: "operator",
       permissions: ["sessions.control"],
       authMethod: "session-token"
     });
@@ -55,6 +63,66 @@ describe("gateway auth foundation", () => {
     store.revokeToken(token);
 
     expect(store.validateToken(token)).toBeNull();
+  });
+
+  it("derives role-specific permissions", () => {
+    expect(getPermissionsForRole("viewer")).toEqual([
+      "sessions.list",
+      "sessions.read",
+      "config.read"
+    ]);
+    expect(getPermissionsForRole("operator")).toEqual([
+      "sessions.list",
+      "sessions.read",
+      "config.read",
+      "goals.submit",
+      "sessions.control",
+      "sessions.approve"
+    ]);
+    expect(getPermissionsForRole("admin")).toEqual([
+      "sessions.list",
+      "sessions.read",
+      "config.read",
+      "goals.submit",
+      "sessions.control",
+      "sessions.approve",
+      "runtime.proxy"
+    ]);
+  });
+
+  it("creates and verifies scrypt password hashes", async () => {
+    const passwordHash = await createPasswordHash("octopus-ops");
+
+    await expect(verifyPasswordHash("octopus-ops", passwordHash)).resolves.toBe(true);
+    await expect(verifyPasswordHash("wrong-password", passwordHash)).resolves.toBe(false);
+  });
+
+  it("still performs scrypt work for unknown usernames", async () => {
+    const passwordHash = await createPasswordHash("octopus-ops");
+    const verifySpy = vi.spyOn(authModule.authHelpers, "verifyPasswordHash");
+
+    await expect(
+      authenticateUser(
+        [
+          {
+            username: "ops1",
+            passwordHash,
+            role: "operator"
+          }
+        ],
+        "missing-user",
+        "wrong-password"
+      )
+    ).resolves.toBeNull();
+
+    expect(verifySpy).toHaveBeenCalledTimes(1);
+    expect(verifySpy).toHaveBeenCalledWith("wrong-password", expect.any(String));
+  });
+
+  it("rejects unreasonable scrypt parameters before invoking the hasher", async () => {
+    const invalidHash = "scrypt$1048577$8$1$BwcHBwcHBwcHBwcHBwcHBw==$AQID";
+
+    await expect(verifyPasswordHash("octopus-ops", invalidHash)).resolves.toBe(false);
   });
 
   it("sweeps expired tokens", async () => {
@@ -109,6 +177,7 @@ describe("gateway auth foundation", () => {
 
     expect(apiKeyOperator).toEqual({
       operatorId: "operator",
+      role: "admin",
       permissions: ["sessions.list", "config.read"],
       authMethod: "api-key"
     });

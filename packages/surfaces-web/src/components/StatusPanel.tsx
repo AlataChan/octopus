@@ -16,15 +16,25 @@ export function StatusPanel({ status, visible }: StatusPanelProps) {
   const fields = status
     ? [
         { label: t("status.profile"), value: status.profile },
+        { label: t("status.currentRole"), value: status.currentRole ?? t("status.loading") },
+        { label: t("status.currentOperator"), value: status.currentOperator ?? t("status.loading") },
         { label: t("status.host"), value: `${status.host}:${status.port}` },
         { label: t("status.connectedClients"), value: String(status.connectedClients) },
-        { label: t("status.remoteAccess"), value: status.allowRemote ? t("status.enabled") : t("status.disabled") }
+        { label: t("status.remoteAccess"), value: status.allowRemote ? t("status.enabled") : t("status.disabled") },
+        { label: t("status.browserLogin"), value: status.browserLoginConfigured ? t("status.enabled") : t("status.disabled") },
+        { label: t("status.configuredUsers"), value: String(status.configuredUsers ?? 0) },
+        { label: t("status.auditStream"), value: status.traceStreamingAvailable ? t("status.enabled") : t("status.disabled") }
       ]
     : [
         { label: t("status.profile"), value: t("status.loading") },
+        { label: t("status.currentRole"), value: t("status.loading") },
+        { label: t("status.currentOperator"), value: t("status.loading") },
         { label: t("status.host"), value: t("status.loading") },
         { label: t("status.connectedClients"), value: t("status.loading") },
-        { label: t("status.remoteAccess"), value: t("status.loading") }
+        { label: t("status.remoteAccess"), value: t("status.loading") },
+        { label: t("status.browserLogin"), value: t("status.loading") },
+        { label: t("status.configuredUsers"), value: t("status.loading") },
+        { label: t("status.auditStream"), value: t("status.loading") }
       ];
 
   return (

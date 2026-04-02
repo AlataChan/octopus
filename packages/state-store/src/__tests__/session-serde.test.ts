@@ -30,4 +30,46 @@ describe("serializeWorkSession / hydrateWorkSession blockedReason", () => {
 
     expect(restored.blockedReason).toBeUndefined();
   });
+
+  it("round-trips release metadata and preserves optional fields", () => {
+    const goal = createWorkGoal({ description: "Test release metadata" });
+    const session = createWorkSession(goal, {
+      workspaceId: "workspace-a",
+      configProfileId: "profile-a",
+      createdBy: "operator-1",
+      taskTitle: "README 摘要"
+    });
+    session.goalSummary = "读取 README 并整理为中文摘要";
+
+    const stored = serializeWorkSession(session);
+    const restored = hydrateWorkSession(stored);
+
+    expect(stored.workspaceId).toBe("workspace-a");
+    expect(stored.configProfileId).toBe("profile-a");
+    expect(stored.createdBy).toBe("operator-1");
+    expect(stored.taskTitle).toBe("README 摘要");
+    expect(restored.workspaceId).toBe("workspace-a");
+    expect(restored.configProfileId).toBe("profile-a");
+    expect(restored.createdBy).toBe("operator-1");
+    expect(restored.taskTitle).toBe("README 摘要");
+    expect(restored.goalSummary).toBe("读取 README 并整理为中文摘要");
+  });
+
+  it("hydrates legacy sessions without scope metadata using release defaults", () => {
+    const goal = createWorkGoal({ description: "Legacy session" });
+    const session = createWorkSession(goal);
+
+    const stored = serializeWorkSession(session) as unknown as Record<string, unknown>;
+    delete stored.workspaceId;
+    delete stored.configProfileId;
+    delete stored.createdBy;
+    delete stored.taskTitle;
+
+    const restored = hydrateWorkSession(stored as unknown as ReturnType<typeof serializeWorkSession>);
+
+    expect(restored.workspaceId).toBe("default");
+    expect(restored.configProfileId).toBe("default");
+    expect(restored.createdBy).toBeUndefined();
+    expect(restored.taskTitle).toBeUndefined();
+  });
 });

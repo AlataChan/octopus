@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => {
   const executeGoal = vi.fn<() => Promise<WorkSession>>(async () => ({
     id: "session-1",
     goalId: "goal-1",
+    workspaceId: "default",
+    configProfileId: "default",
     namedGoalId: "daily-report",
     state: "completed" as const,
     items: [],
@@ -24,6 +26,8 @@ const mocks = vi.hoisted(() => {
   const resumeBlockedSession = vi.fn<() => Promise<WorkSession>>(async () => ({
     id: "session-1",
     goalId: "goal-1",
+    workspaceId: "default",
+    configProfileId: "default",
     state: "active" as const,
     items: [],
     observations: [],
@@ -452,6 +456,8 @@ describe("buildCli", () => {
     mocks.loadSession.mockResolvedValueOnce({
       id: "session-1",
       goalId: "goal-1",
+      workspaceId: "default",
+      configProfileId: "default",
       namedGoalId: "daily-report",
       state: "blocked",
       items: [],

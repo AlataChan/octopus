@@ -158,6 +158,31 @@ describe("gateway websocket handlers", () => {
     });
   });
 
+  it("rejects clarification messages from viewer sessions", async () => {
+    const { deps, resumeBlockedSession, tokenStore } = createDeps();
+    const { token } = tokenStore.mintToken("viewer-1", ["sessions.read"], "viewer");
+    const ws = new FakeWebSocket();
+
+    handleEventStreamUpgrade({} as never, ws as never, "session-1", deps);
+    ws.receive({
+      type: "auth",
+      token
+    });
+    await flushAsync();
+
+    ws.receive({
+      type: "clarification",
+      answer: "use /tmp"
+    });
+    await flushAsync();
+
+    expect(resumeBlockedSession).not.toHaveBeenCalled();
+    expect(ws.sentMessages).toContainEqual({
+      type: "error",
+      error: "Missing permission: sessions.approve"
+    });
+  });
+
   it("sends error when clarification resume fails", async () => {
     const { deps, resumeBlockedSession } = createDeps();
     resumeBlockedSession.mockRejectedValueOnce(new Error("Session is not blocked"));
@@ -273,6 +298,7 @@ function createDeps(
   pauseSession: ReturnType<typeof vi.fn>;
   cancelSession: ReturnType<typeof vi.fn>;
   resumeBlockedSession: ReturnType<typeof vi.fn>;
+  tokenStore: TokenStore;
 } {
   const goal = createWorkGoal({
     id: "goal-1",
@@ -345,7 +371,8 @@ function createDeps(
     eventBus,
     pauseSession,
     cancelSession,
-    resumeBlockedSession
+    resumeBlockedSession,
+    tokenStore
   };
 }
 
@@ -485,6 +512,10 @@ class MemoryStore implements StateStore {
     return this.sessions.map((session) => ({
       id: session.id,
       goalId: session.goalId,
+      workspaceId: session.workspaceId,
+      configProfileId: session.configProfileId,
+      ...(session.createdBy ? { createdBy: session.createdBy } : {}),
+      ...(session.taskTitle ? { taskTitle: session.taskTitle } : {}),
       ...(session.namedGoalId ? { namedGoalId: session.namedGoalId } : {}),
       state: session.state,
       updatedAt: session.updatedAt

@@ -4,6 +4,7 @@ export * from "./middleware/origin-guard.js";
 export * from "./middleware/tls-guard.js";
 export * from "./routes/approval.js";
 export * from "./routes/auth-routes.js";
+export * from "./routes/clarification.js";
 export * from "./routes/control.js";
 export * from "./routes/goals.js";
 export * from "./routes/health.js";

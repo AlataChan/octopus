@@ -37,7 +37,7 @@ import {
   handleRollbackSession
 } from "./routes/sessions.js";
 import { handleStatus } from "./routes/status.js";
-import type { GatewayConfig } from "./types.js";
+import type { GatewayConfig, SystemConfig } from "./types.js";
 import { handleEventStreamUpgrade } from "./ws/event-stream.js";
 import { handleRuntimeProtocolUpgrade } from "./ws/runtime-protocol.js";
 
@@ -65,7 +65,8 @@ export class GatewayServer {
     private policy: SecurityPolicy,
     private profileName: SecurityProfileName,
     private policyResolution: PolicyResolution,
-    traceReader?: TraceReader
+    traceReader?: TraceReader,
+    private readonly systemConfigApplier?: (systemConfig: SystemConfig) => Promise<void>
   ) {
     this.traceReader = traceReader;
     this.tokenStore = new TokenStore(config.auth.sessionTokenTtlMs ?? 3_600_000);
@@ -345,8 +346,33 @@ export class GatewayServer {
       traceReader: this.traceReader,
       profileName: this.profileName,
       policyResolution: this.policyResolution,
-      connectedClientsCount: this.connectedSockets.size
+      connectedClientsCount: this.connectedSockets.size,
+      systemConfigApplier: this.systemConfigApplier
     };
+  }
+
+  applySystemConfig(update: {
+    engine: WorkEngine;
+    runtime: AgentRuntime;
+    policy: SecurityPolicy;
+    policyResolution: PolicyResolution;
+    auth: {
+      apiKey: string;
+      users: GatewayConfig["auth"]["users"];
+    };
+  }): void {
+    this.engine = update.engine;
+    this.runtime = update.runtime;
+    this.policy = update.policy;
+    this.policyResolution = update.policyResolution;
+    this.profileName = update.policyResolution.profile;
+    this.config.auth = {
+      ...this.config.auth,
+      apiKey: update.auth.apiKey,
+      ...(update.auth.users ? { users: [...update.auth.users] } : { users: [] })
+    };
+    this.config.setupMode = false;
+    this.tokenStore.clear();
   }
 
   private assertSetupToken(req: IncomingMessage): void {

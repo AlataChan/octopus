@@ -153,6 +153,7 @@ export async function handleInitialize(
     };
 
     await writeSystemConfig(configDir, systemConfig);
+    await deps.systemConfigApplier?.(systemConfig);
     delete process.env.OCTOPUS_SETUP_TOKEN;
 
     return { initialized: true };

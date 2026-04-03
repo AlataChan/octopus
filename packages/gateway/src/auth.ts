@@ -86,6 +86,10 @@ export class TokenStore {
     this.tokens.delete(token);
   }
 
+  clear(): void {
+    this.tokens.clear();
+  }
+
   startSweep(intervalMs: number): void {
     this.stopSweep();
     this.sweepTimer = setInterval(() => {

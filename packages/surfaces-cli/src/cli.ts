@@ -678,11 +678,20 @@ export async function main(): Promise<void> {
 
 export function createDefaultConfig(workspaceRoot: string, modelClient: ModelClient): LocalAppConfig {
   const dataDir = join(workspaceRoot, ".octopus");
+  const systemConfigDir = join(workspaceRoot, ".octopus", "system");
   const configPath = join(dataDir, "config.json");
   const { config: fileConfig, issues: fileConfigIssues } = readFileConfig(configPath);
   const configIssues = [...fileConfigIssues];
   const { users: envUsers, issue: envUsersIssue } = readGatewayUsers(process.env.OCTOPUS_USERS_JSON);
   const envProviderIssue = createUnsupportedProviderIssue("OCTOPUS_PROVIDER", process.env.OCTOPUS_PROVIDER);
+  const trustProxyCIDRs =
+    readGatewayCidrs(process.env.OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS)
+    ?? fileConfig.gateway?.trustProxyCIDRs;
+  const enableRuntimeProxy =
+    readBoolean(process.env.OCTOPUS_GATEWAY_ENABLE_RUNTIME_PROXY)
+    ?? fileConfig.gateway?.enableRuntimeProxy;
+  const profile = readProfile(process.env.OCTOPUS_PROFILE) ?? fileConfig.profile ?? "safe-local";
+  const persistentSystemConfig = readPersistentSystemConfig(systemConfigDir);
   if (envProviderIssue) {
     configIssues.push(envProviderIssue);
   }
@@ -690,47 +699,109 @@ export function createDefaultConfig(workspaceRoot: string, modelClient: ModelCli
     configIssues.push(envUsersIssue);
   }
 
+  const gatewayBase = {
+    port: readNumber(process.env.OCTOPUS_GATEWAY_PORT) ?? fileConfig.gateway?.port ?? 4_321,
+    host: process.env.OCTOPUS_GATEWAY_HOST ?? fileConfig.gateway?.host ?? "127.0.0.1",
+    systemConfigDir,
+    ...(fileConfig.gateway?.tls ? { tls: fileConfig.gateway.tls } : {}),
+    ...(trustProxyCIDRs ? { trustProxyCIDRs } : {}),
+    ...(enableRuntimeProxy === undefined ? {} : { enableRuntimeProxy })
+  };
+
+  if (persistentSystemConfig) {
+    return {
+      workspaceRoot,
+      dataDir,
+      setupMode: false,
+      runtime: {
+        provider: "openai-compatible",
+        model: persistentSystemConfig.runtime.model,
+        apiKey: persistentSystemConfig.runtime.apiKey,
+        maxTokens: persistentSystemConfig.runtime.maxTokens ?? 4_096,
+        temperature: persistentSystemConfig.runtime.temperature ?? 0,
+        baseUrl: persistentSystemConfig.runtime.baseUrl,
+        allowModelApiCall: true
+      },
+      profile,
+      gateway: {
+        ...gatewayBase,
+        apiKey: persistentSystemConfig.auth.gatewayApiKey,
+        users: persistentSystemConfig.auth.users.map((user) => ({ ...user }))
+      },
+      ...(configIssues.length > 0 ? { configIssues } : {}),
+      ...(fileConfig.mcp ? { mcp: fileConfig.mcp } : {}),
+      modelClient
+    };
+  }
+
+  const hasCompleteLegacyRuntime =
+    typeof process.env.OCTOPUS_MODEL === "string"
+    && process.env.OCTOPUS_MODEL.trim().length > 0
+    && typeof process.env.OCTOPUS_API_KEY === "string"
+    && process.env.OCTOPUS_API_KEY.trim().length > 0;
+  const hasCompleteLegacyAuth =
+    (typeof process.env.OCTOPUS_GATEWAY_API_KEY === "string"
+      && process.env.OCTOPUS_GATEWAY_API_KEY.trim().length > 0)
+    || Boolean(envUsers);
+
+  if (hasCompleteLegacyRuntime && hasCompleteLegacyAuth) {
+    return {
+      workspaceRoot,
+      dataDir,
+      setupMode: false,
+      runtime: {
+        provider: readProvider(process.env.OCTOPUS_PROVIDER) ?? fileConfig.provider ?? "openai-compatible",
+        model: process.env.OCTOPUS_MODEL ?? fileConfig.model ?? "",
+        apiKey: process.env.OCTOPUS_API_KEY ?? fileConfig.apiKey ?? "",
+        maxTokens: readNumber(process.env.OCTOPUS_MAX_TOKENS) ?? fileConfig.maxTokens ?? 4_096,
+        temperature: readNumber(process.env.OCTOPUS_TEMPERATURE) ?? fileConfig.temperature ?? 0,
+        baseUrl: process.env.OCTOPUS_BASE_URL ?? fileConfig.baseUrl,
+        allowModelApiCall:
+          readBoolean(process.env.OCTOPUS_ALLOW_MODEL_API_CALL) ?? fileConfig.allowModelApiCall ?? false
+      },
+      profile,
+      gateway: {
+        ...gatewayBase,
+        apiKey: process.env.OCTOPUS_GATEWAY_API_KEY ?? fileConfig.gateway?.apiKey ?? "",
+        ...(envUsers ? { users: envUsers } : {})
+      },
+      ...(configIssues.length > 0 ? { configIssues } : {}),
+      ...(fileConfig.mcp ? { mcp: fileConfig.mcp } : {}),
+      modelClient
+    };
+  }
+
   return {
     workspaceRoot,
     dataDir,
     runtime: {
       provider: readProvider(process.env.OCTOPUS_PROVIDER) ?? fileConfig.provider ?? "openai-compatible",
-      model: process.env.OCTOPUS_MODEL ?? fileConfig.model ?? "",
-      apiKey: process.env.OCTOPUS_API_KEY ?? fileConfig.apiKey ?? "",
+      model: "",
+      apiKey: "",
       maxTokens: readNumber(process.env.OCTOPUS_MAX_TOKENS) ?? fileConfig.maxTokens ?? 4_096,
       temperature: readNumber(process.env.OCTOPUS_TEMPERATURE) ?? fileConfig.temperature ?? 0,
       baseUrl: process.env.OCTOPUS_BASE_URL ?? fileConfig.baseUrl,
-      allowModelApiCall: readBoolean(process.env.OCTOPUS_ALLOW_MODEL_API_CALL) ?? fileConfig.allowModelApiCall ?? false
+      allowModelApiCall: false
     },
-    profile: readProfile(process.env.OCTOPUS_PROFILE) ?? fileConfig.profile ?? "safe-local",
+    setupMode: true,
+    profile,
     gateway: {
-      port: readNumber(process.env.OCTOPUS_GATEWAY_PORT) ?? fileConfig.gateway?.port ?? 4_321,
-      host: process.env.OCTOPUS_GATEWAY_HOST ?? fileConfig.gateway?.host ?? "127.0.0.1",
-      apiKey: process.env.OCTOPUS_GATEWAY_API_KEY ?? fileConfig.gateway?.apiKey ?? "",
-      ...(envUsers ? { users: envUsers } : {}),
-      ...(fileConfig.gateway?.tls ? { tls: fileConfig.gateway.tls } : {}),
-      ...(
-        readGatewayCidrs(process.env.OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS)
-        ?? fileConfig.gateway?.trustProxyCIDRs
-        ? {
-            trustProxyCIDRs: readGatewayCidrs(process.env.OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS)
-              ?? fileConfig.gateway?.trustProxyCIDRs
-          }
-        : {}
-      ),
-      ...(
-        readBoolean(process.env.OCTOPUS_GATEWAY_ENABLE_RUNTIME_PROXY)
-        ?? fileConfig.gateway?.enableRuntimeProxy
-      ) === undefined
-        ? {}
-        : {
-            enableRuntimeProxy: readBoolean(process.env.OCTOPUS_GATEWAY_ENABLE_RUNTIME_PROXY)
-              ?? fileConfig.gateway?.enableRuntimeProxy
-          }
+      ...gatewayBase,
+      apiKey: randomUUID(),
+      users: [],
+      ...(process.env.OCTOPUS_SETUP_TOKEN ? { setupToken: process.env.OCTOPUS_SETUP_TOKEN } : {})
     },
     ...(configIssues.length > 0 ? { configIssues } : {}),
     ...(fileConfig.mcp ? { mcp: fileConfig.mcp } : {}),
-    modelClient
+    modelClient: createSetupModeModelClient()
+  };
+}
+
+function createSetupModeModelClient(): ModelClient {
+  return {
+    async completeTurn() {
+      throw new Error("System not initialized");
+    }
   };
 }
 
@@ -738,6 +809,7 @@ function describeConfig(config: LocalAppConfig) {
   return {
     workspaceRoot: config.workspaceRoot,
     dataDir: config.dataDir,
+    setupMode: config.setupMode ?? false,
     runtime: {
       provider: config.runtime.provider,
       model: config.runtime.model,
@@ -824,6 +896,27 @@ interface StoredConfig {
   };
 }
 
+interface PersistentSystemConfig {
+  runtime: {
+    provider: "openai-compatible";
+    model: string;
+    apiKey: string;
+    baseUrl?: string;
+    maxTokens?: number;
+    temperature?: number;
+  };
+  auth: {
+    gatewayApiKey: string;
+    users: NonNullable<GatewayConfigSection["users"]>;
+  };
+  meta: {
+    initialized: boolean;
+    initializedAt: string;
+    initializedBy: string;
+    schemaVersion: number;
+  };
+}
+
 interface StoredGatewayConfig {
   port?: number;
   host?: string;
@@ -884,6 +977,28 @@ function readFileConfig(path: string): { config: StoredConfig; issues: string[] 
     };
   } catch {
     return { config: {}, issues: [] };
+  }
+}
+
+function readPersistentSystemConfig(systemConfigDir: string): PersistentSystemConfig | null {
+  try {
+    const meta = JSON.parse(readFileSync(join(systemConfigDir, "meta.json"), "utf8")) as PersistentSystemConfig["meta"];
+    const runtime = JSON.parse(
+      readFileSync(join(systemConfigDir, "runtime.json"), "utf8")
+    ) as PersistentSystemConfig["runtime"];
+    const auth = JSON.parse(readFileSync(join(systemConfigDir, "auth.json"), "utf8")) as PersistentSystemConfig["auth"];
+
+    if (meta.initialized !== true) {
+      return null;
+    }
+
+    return {
+      runtime,
+      auth,
+      meta
+    };
+  } catch {
+    return null;
   }
 }
 

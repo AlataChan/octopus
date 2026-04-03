@@ -28,6 +28,7 @@ export interface LocalAppConfig {
   dataDir: string;
   runtime: EmbeddedRuntimeConfig;
   configIssues?: string[];
+  setupMode?: boolean;
   profile?: SecurityProfileName;
   policyFilePath?: string;
   gateway?: GatewayConfigSection;
@@ -51,6 +52,8 @@ export interface GatewayConfigSection {
   host: string;
   apiKey: string;
   users?: GatewayUserAccount[];
+  setupToken?: string;
+  systemConfigDir?: string;
   tls?: {
     cert: string;
     key: string;
@@ -146,7 +149,7 @@ export async function createGatewayApp(
 ): Promise<GatewayApp> {
   const localApp = await createLocalWorkEngine(config, dependencies);
   const gatewayServer = new GatewayServer(
-    toGatewayConfig(config.gateway, config.workspaceRoot),
+    toGatewayConfig(config.gateway, config.workspaceRoot, config.setupMode),
     localApp.engine,
     localApp.runtime,
     localApp.store,
@@ -193,7 +196,11 @@ function createPolicyEvent<T extends "profile.selected" | "policy.resolved">(
   } as Extract<WorkEvent, { type: T }>;
 }
 
-function toGatewayConfig(config: GatewayConfigSection, workspaceRoot: string): GatewayConfig {
+function toGatewayConfig(
+  config: GatewayConfigSection,
+  workspaceRoot: string,
+  setupMode = false
+): GatewayConfig {
   const defaultPermissions = getPermissionsForRole("admin").filter((permission: GatewayPermission) => (
     config.enableRuntimeProxy ?? false
   ) || permission !== "runtime.proxy");
@@ -202,6 +209,9 @@ function toGatewayConfig(config: GatewayConfigSection, workspaceRoot: string): G
     port: config.port,
     host: config.host,
     workspaceRoot,
+    ...(config.systemConfigDir ? { systemConfigDir: config.systemConfigDir } : {}),
+    ...(config.setupToken ? { setupToken: config.setupToken } : {}),
+    ...(setupMode ? { setupMode: true } : {}),
     ...(config.tls ? { tls: config.tls } : {}),
     ...(config.trustProxyCIDRs ? { trustProxyCIDRs: [...config.trustProxyCIDRs] } : {}),
     auth: {

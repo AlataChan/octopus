@@ -8,8 +8,9 @@ services:
     environment:
       OCTOPUS_GATEWAY_HOST: 0.0.0.0
       OCTOPUS_GATEWAY_PORT: 4321
+      OCTOPUS_SETUP_TOKEN: ${OCTOPUS_SETUP_TOKEN}
     volumes:
-      - ${OCTOPUS_WORKSPACE:-./workspace}:/workspace
+      - octopus-data:/workspace
     expose:
       - "4321"
     networks:
@@ -31,3 +32,6 @@ services:
 networks:
   octopus-release:
     driver: bridge
+
+volumes:
+  octopus-data:

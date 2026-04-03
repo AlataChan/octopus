@@ -56,23 +56,23 @@ Typical goals:
 
 ## Packages
 
-| Package | Role |
-|---------|------|
-| `work-contracts` | Pure domain types (no logic, no deps) |
-| `observability` | EventBus + JSONL trace writer/reader |
-| `agent-runtime` | Runtime protocol interfaces |
-| `exec-substrate` | read / patch / shell / search + MCP extension |
-| `state-store` | Session + artifact persistence, snapshot/restore |
-| `security` | safe-local / vibe / platform security profiles |
-| `work-core` | Work loop engine, verification, completion |
-| `runtime-embedded` | OpenAI-compatible runtime adapter (e.g. OpenRouter) |
-| `runtime-remote` | Remote runtime adapter |
-| `automation` | Cron scheduler, file watcher, event injection |
-| `gateway` | HTTP/WebSocket server, auth, event streaming |
-| `adapter-mcp` | Optional MCP compatibility layer |
-| `surfaces-cli` | CLI: run / status / sessions / replay / mcp / remote |
-| `surfaces-web` | Preact browser operator dashboard |
-| `surfaces-chat` | Chat adapter via Webhook / 长链接回调 (goal intake + completion notification) |
+| Package            | Role                                                                          |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `work-contracts`   | Pure domain types (no logic, no deps)                                         |
+| `observability`    | EventBus + JSONL trace writer/reader                                          |
+| `agent-runtime`    | Runtime protocol interfaces                                                   |
+| `exec-substrate`   | read / patch / shell / search + MCP extension                                 |
+| `state-store`      | Session + artifact persistence, snapshot/restore                              |
+| `security`         | safe-local / vibe / platform security profiles                                |
+| `work-core`        | Work loop engine, verification, completion                                    |
+| `runtime-embedded` | OpenAI-compatible runtime adapter (e.g. OpenRouter)                           |
+| `runtime-remote`   | Remote runtime adapter                                                        |
+| `automation`       | Cron scheduler, file watcher, event injection                                 |
+| `gateway`          | HTTP/WebSocket server, auth, event streaming                                  |
+| `adapter-mcp`      | Optional MCP compatibility layer                                              |
+| `surfaces-cli`     | CLI: run / status / sessions / replay / mcp / remote                          |
+| `surfaces-web`     | Preact browser operator dashboard                                             |
+| `surfaces-chat`    | Chat adapter via Webhook / 长链接回调 (goal intake + completion notification) |
 
 ## Quick Start
 
@@ -102,10 +102,11 @@ node packages/surfaces-cli/dist/index.js run "describe your goal here"
 
 The release baseline ships a browser control console for one internal team, one shared workspace, and one default model/MCP profile.
 
-Browser login uses static users from `OCTOPUS_USERS_JSON` and short-lived session tokens. The gateway bootstrap API key remains available for CLI/bootstrap flows only.
+The release path now starts with a browser setup wizard. On first boot, an operator enters a one-time `OCTOPUS_SETUP_TOKEN`, validates runtime connectivity, creates the first admin account, and optionally adds viewer/operator accounts. The gateway persists that system config under `/workspace/.octopus/system` and then serves normal browser login with short-lived session tokens.
 
 Relevant browser flows:
 
+- first-run browser initialization
 - username/password login
 - task publish with title + instruction
 - blocked-session clarification and approval
@@ -115,17 +116,15 @@ Relevant browser flows:
 
 ## Release Configuration
 
-The gateway and runtime can be configured from environment variables:
+The release path only needs one required environment variable in `.env`:
 
-- `OCTOPUS_MODEL`
-- `OCTOPUS_API_KEY`
-- `OCTOPUS_ALLOW_MODEL_API_CALL=true`
-- `OCTOPUS_GATEWAY_API_KEY`
-- `OCTOPUS_GATEWAY_HOST`
-- `OCTOPUS_GATEWAY_PORT`
-- `OCTOPUS_USERS_JSON`
+- `OCTOPUS_SETUP_TOKEN`
 
-See [`.env.example`](./.env.example) for the full shape.
+Optional infrastructure override:
+
+- `OCTOPUS_WEB_PORT`
+
+See [`.env.example`](./.env.example) for the full shape. Runtime credentials and browser users are collected later in the browser setup wizard and persisted into `/workspace/.octopus/system`.
 
 ## Release Deployment
 
@@ -133,7 +132,6 @@ Containerized release path:
 
 ```bash
 cp .env.example .env
-mkdir -p workspace
 docker compose -f docker-compose.release.yml up --build -d
 ```
 
@@ -141,6 +139,8 @@ This starts:
 
 - `gateway`: the Octopus runtime + API service
 - `web`: nginx serving the built Preact console and proxying `/auth`, `/api`, `/ws`, and `/health` to the gateway
+
+The compose release path uses a named Docker volume mounted at `/workspace`, so browser-initialized system config, sessions, snapshots, and traces survive container restarts without bind-mounting the repo checkout.
 
 Runbook:
 
@@ -182,11 +182,11 @@ Workspace configuration lives in `.octopus/config.json`:
 
 ## Security Profiles
 
-| Profile | Use Case | Network | MCP | Shell |
-|---------|----------|---------|-----|-------|
-| `safe-local` | Default interactive use | Denied | Denied | Allowlisted executables |
-| `vibe` | Trusted local experimentation | Allowed | Allowed | All allowed |
-| `platform` | Remote/shared deployment | Policy file | Policy file | Policy file |
+| Profile      | Use Case                      | Network     | MCP         | Shell                   |
+| ------------ | ----------------------------- | ----------- | ----------- | ----------------------- |
+| `safe-local` | Default interactive use       | Denied      | Denied      | Allowlisted executables |
+| `vibe`       | Trusted local experimentation | Allowed     | Allowed     | All allowed             |
+| `platform`   | Remote/shared deployment      | Policy file | Policy file | Policy file             |
 
 ## Key Design Principles
 

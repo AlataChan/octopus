@@ -8,9 +8,11 @@ import { GatewayClient, type ApprovalRequest, type StatusResponse } from "./api/
 import type { AuthSession } from "./api/auth.js";
 import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal.js";
 import { ConnectionStatus } from "./components/ConnectionStatus.js";
+import { ErrorPanel } from "./components/ErrorPanel.js";
 import { LoginForm } from "./components/LoginForm.js";
 import { SessionDetail } from "./components/SessionDetail.js";
 import { SessionList } from "./components/SessionList.js";
+import { SetupWizard } from "./components/SetupWizard.js";
 import { TaskComposer } from "./components/TaskComposer.js";
 import { I18nProvider } from "./i18n/I18nProvider.js";
 import { useI18n } from "./i18n/useI18n.js";
@@ -27,8 +29,11 @@ export function App() {
 function AppView() {
   const { t, localizeError } = useI18n();
   const [client] = useState(() => new GatewayClient(globalThis.location?.origin ?? "http://127.0.0.1:4321"));
-  const [authSession, setAuthSession] = useState<AuthSession | null>(() => client.getAuthSession());
-  const [authenticated, setAuthenticated] = useState(client.isAuthenticated());
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [appMode, setAppMode] = useState<"checking" | "error" | "setup" | "ready">("checking");
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [workspaceWritable, setWorkspaceWritable] = useState(true);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedSession, setSelectedSession] = useState<WorkSession | null>(null);
@@ -103,18 +108,48 @@ function AppView() {
     setShowComposer(false);
   };
 
+  const loadSetupStatus = async () => {
+    setAppMode("checking");
+    setBootError(null);
+
+    try {
+      const setupStatus = await client.getSetupStatus();
+      setWorkspaceWritable(setupStatus.workspaceWritable);
+
+      if (!setupStatus.initialized) {
+        client.clearAuthSession();
+        setAuthSession(null);
+        setAuthenticated(false);
+        setAppMode("setup");
+        return;
+      }
+
+      const nextSession = client.getAuthSession();
+      setAuthSession(nextSession);
+      setAuthenticated(Boolean(nextSession));
+      setAppMode("ready");
+    } catch (error) {
+      setBootError(error instanceof Error ? error.message : t("error.gatewayRequestFailed"));
+      setAppMode("error");
+    }
+  };
+
   useEffect(() => {
-    if (!authenticated) {
+    void loadSetupStatus();
+  }, []);
+
+  useEffect(() => {
+    if (appMode !== "ready" || !authenticated) {
       return;
     }
 
     void Promise.all([refreshSessions(), refreshStatus()]).catch((error) => {
       setPageError(error instanceof Error ? localizeError(error.message) : t("error.loadGatewayDataFailed"));
     });
-  }, [authenticated]);
+  }, [appMode, authenticated]);
 
   useEffect(() => {
-    if (!authenticated || !selectedSessionId) {
+    if (appMode !== "ready" || !authenticated || !selectedSessionId) {
       setSelectedSession(null);
       setSnapshots([]);
       setEvents([]);
@@ -174,7 +209,7 @@ function AppView() {
       active = false;
       stream.detach();
     };
-  }, [authenticated, selectedSessionId]);
+  }, [appMode, authenticated, selectedSessionId]);
 
   const handleLogin = async (username: string, password: string) => {
     const session = await client.login(username, password);
@@ -324,6 +359,53 @@ function AppView() {
   };
 
   const showComposerPanel = canSubmitTasks && (showComposer || !selectedSessionId);
+
+  if (appMode === "checking") {
+    return (
+      <main class="app-shell app-gate">
+        <section class="card app-loading-panel">
+          <p class="eyebrow">{t("brand.name")}</p>
+          <h1>{t("app.connectingGateway")}</h1>
+          <p class="app-subtitle">{t("app.connectingGatewayDescription")}</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (appMode === "error") {
+    return (
+      <main class="app-shell app-gate">
+        <ErrorPanel
+          title={t("errorPanel.title")}
+          message={localizeError(bootError ?? t("error.gatewayRequestFailed"))}
+          retryLabel={t("errorPanel.retry")}
+          onRetry={() => {
+            void loadSetupStatus();
+          }}
+        />
+      </main>
+    );
+  }
+
+  if (appMode === "setup") {
+    return (
+      <main class="app-shell app-gate">
+        <SetupWizard
+          workspaceWritable={workspaceWritable}
+          validateSetupToken={(token) => client.validateSetupToken(token)}
+          validateRuntime={(token, runtime) => client.validateRuntime(token, runtime)}
+          initialize={(token, payload) => client.initialize(token, payload)}
+          onContinueToLogin={() => {
+            client.clearAuthSession();
+            setAuthSession(null);
+            setAuthenticated(false);
+            setPageError(null);
+            setAppMode("ready");
+          }}
+        />
+      </main>
+    );
+  }
 
   if (!authenticated) {
     return (

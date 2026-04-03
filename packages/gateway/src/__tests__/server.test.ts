@@ -84,6 +84,43 @@ describe("GatewayServer", () => {
     expect(response.body).toMatchObject({ status: "ok", activeSessions: 1 });
   });
 
+  it("serves setup status without auth", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-setup-"));
+    tempDirs.push(workspaceRoot);
+    const server = createGatewayServer({
+      workspaceRoot,
+      systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+      setupToken: "setup-secret"
+    });
+
+    const response = await dispatch(server, "GET", "/api/setup/status");
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      initialized: false,
+      workspaceWritable: true
+    });
+  });
+
+  it("bypasses normal auth for setup validation but still requires the setup token header", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-setup-"));
+    tempDirs.push(workspaceRoot);
+    const server = createGatewayServer({
+      workspaceRoot,
+      systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+      setupToken: "setup-secret"
+    });
+
+    const missing = await dispatch(server, "POST", "/api/setup/validate-token");
+    const valid = await dispatch(server, "POST", "/api/setup/validate-token", undefined, {
+      "x-setup-token": "setup-secret"
+    });
+
+    expect(missing.statusCode).toBe(401);
+    expect(valid.statusCode).toBe(200);
+    expect(valid.body).toEqual({ valid: true });
+  });
+
   it("rejects token mint without API key auth", async () => {
     const server = createGatewayServer();
     const response = await dispatch(server, "POST", "/auth/token");
@@ -608,6 +645,284 @@ describe("GatewayServer", () => {
       })
     }));
   });
+
+  it("applies updated auth config and clears existing browser tokens", async () => {
+    const oldHash = await createPasswordHash("old-password");
+    const newHash = await createPasswordHash("new-password");
+    const { server } = createGatewayServerHarness({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ],
+        users: [
+          {
+            username: "old-user",
+            passwordHash: oldHash,
+            role: "operator"
+          }
+        ]
+      }
+    });
+
+    const oldLogin = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "old-user",
+        password: "old-password"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const oldToken = (oldLogin.body as { token: string }).token;
+
+    expect(typeof (server as unknown as { applySystemConfig?: unknown }).applySystemConfig).toBe("function");
+
+    (server as unknown as {
+      applySystemConfig(update: {
+        engine: WorkEngine;
+        runtime: AgentRuntime;
+        policy: SecurityPolicy;
+        policyResolution: PolicyResolution;
+        auth: {
+          apiKey: string;
+          users: Array<{ username: string; passwordHash: string; role: "viewer" | "operator" | "admin" }>;
+        };
+      }): void;
+    }).applySystemConfig({
+      ...createGatewayServerHarness({
+        auth: {
+          apiKey: "new-secret",
+          defaultPermissions: [
+            "sessions.list",
+            "sessions.read",
+            "sessions.control",
+            "sessions.approve",
+            "goals.submit",
+            "config.read"
+          ]
+        }
+      }),
+      auth: {
+        apiKey: "new-secret",
+        users: [
+          {
+            username: "new-user",
+            passwordHash: newHash,
+            role: "operator"
+          }
+        ]
+      }
+    });
+
+    const afterSwap = await dispatch(server, "GET", "/api/sessions", undefined, {
+      authorization: `Bearer ${oldToken}`
+    });
+    const newLogin = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "new-user",
+        password: "new-password"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const apiKeySessions = await dispatch(server, "GET", "/api/sessions", undefined, {
+      "x-api-key": "new-secret"
+    });
+
+    expect(afterSwap.statusCode).toBe(401);
+    expect(newLogin.statusCode).toBe(200);
+    expect(apiKeySessions.statusCode).toBe(200);
+  });
+
+  it("hot-swaps into ready mode after setup initialization without a server restart", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-hot-swap-"));
+    tempDirs.push(workspaceRoot);
+
+    const initial = createGatewayServerHarness({
+      workspaceRoot,
+      systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+      setupMode: true,
+      setupToken: "setup-secret",
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ]
+      }
+    });
+
+    let server!: GatewayServer;
+    server = new (GatewayServer as unknown as {
+      new(
+        config: GatewayConfig,
+        engine: WorkEngine,
+        runtime: AgentRuntime,
+        store: StateStore,
+        eventBus: EventBus,
+        policy: SecurityPolicy,
+        profileName: "safe-local" | "vibe" | "platform",
+        policyResolution: PolicyResolution,
+        traceReader?: unknown,
+        systemConfigApplier?: (systemConfig: {
+          auth: {
+            gatewayApiKey: string;
+            users: Array<{ username: string; passwordHash: string; role: "viewer" | "operator" | "admin" }>;
+          };
+        }) => Promise<void>
+      ): GatewayServer;
+    })(
+      {
+        port: 0,
+        host: "127.0.0.1",
+        workspaceRoot,
+        systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+        setupMode: true,
+        setupToken: "setup-secret",
+        auth: {
+          apiKey: "secret",
+          defaultPermissions: [
+            "sessions.list",
+            "sessions.read",
+            "sessions.control",
+            "sessions.approve",
+            "goals.submit",
+            "config.read"
+          ]
+        }
+      },
+      initial.engine,
+      initial.runtime,
+      initial.store,
+      new EventBus(),
+      initial.policy,
+      "vibe",
+      initial.policyResolution,
+      undefined,
+      async (systemConfig) => {
+        const replacement = createGatewayServerHarness({
+          workspaceRoot,
+          systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+          auth: {
+            apiKey: systemConfig.auth.gatewayApiKey,
+            defaultPermissions: [
+              "sessions.list",
+              "sessions.read",
+              "sessions.control",
+              "sessions.approve",
+              "goals.submit",
+              "config.read"
+            ],
+            users: systemConfig.auth.users
+          }
+        });
+
+        (server as unknown as {
+          applySystemConfig(update: {
+            engine: WorkEngine;
+            runtime: AgentRuntime;
+            policy: SecurityPolicy;
+            policyResolution: PolicyResolution;
+            auth: {
+              apiKey: string;
+              users: Array<{ username: string; passwordHash: string; role: "viewer" | "operator" | "admin" }>;
+            };
+          }): void;
+        }).applySystemConfig({
+          engine: replacement.engine,
+          runtime: replacement.runtime,
+          policy: replacement.policy,
+          policyResolution: replacement.policyResolution,
+          auth: {
+            apiKey: systemConfig.auth.gatewayApiKey,
+            users: systemConfig.auth.users
+          }
+        });
+      }
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '{"kind":"completion","evidence":"ok"}'
+                }
+              }
+            ]
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
+      )
+    );
+
+    const initialize = await dispatch(
+      server,
+      "POST",
+      "/api/setup/initialize",
+      {
+        runtime: {
+          provider: "openai-compatible",
+          model: "gpt-5.4",
+          apiKey: "sk-test",
+          baseUrl: "https://example.invalid/v1"
+        },
+        admin: {
+          username: "admin",
+          password: "octopus-admin"
+        }
+      },
+      {
+        "x-setup-token": "setup-secret",
+        "content-type": "application/json"
+      }
+    );
+    const login = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "admin",
+        password: "octopus-admin"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const token = (login.body as { token: string }).token;
+    const sessions = await dispatch(server, "GET", "/api/sessions", undefined, {
+      authorization: `Bearer ${token}`
+    });
+
+    expect(initialize.statusCode).toBe(200);
+    expect(login.statusCode).toBe(200);
+    expect(sessions.statusCode).toBe(200);
+  });
 });
 
 async function dispatch(
@@ -700,6 +1015,10 @@ function createGatewayServerHarness(
   server: GatewayServer;
   session: WorkSession;
   store: MemoryStore;
+  engine: WorkEngine;
+  runtime: AgentRuntime;
+  policy: SecurityPolicy;
+  policyResolution: PolicyResolution;
   executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }>;
   resumeBlockedSessionCalls: Array<{ sessionId: string; input: unknown }>;
 } {
@@ -797,6 +1116,7 @@ function createGatewayServerHarness(
         port: 0,
         host: "127.0.0.1",
         workspaceRoot: "/workspace",
+        systemConfigDir: "/workspace/.octopus/system",
         auth: {
           apiKey: "secret",
           defaultPermissions: [
@@ -820,6 +1140,10 @@ function createGatewayServerHarness(
     ),
     session,
     store,
+    engine,
+    runtime,
+    policy,
+    policyResolution,
     executeGoalCalls,
     resumeBlockedSessionCalls
   };

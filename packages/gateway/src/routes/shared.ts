@@ -7,7 +7,7 @@ import type { StateStore } from "@octopus/state-store";
 import type { WorkEngine } from "@octopus/work-core";
 
 import type { TokenStore } from "../auth.js";
-import type { GatewayConfig, GatewayPermission, OperatorContext } from "../types.js";
+import type { GatewayConfig, GatewayPermission, OperatorContext, SystemConfig } from "../types.js";
 
 export interface RouteDeps {
   store: StateStore;
@@ -22,6 +22,7 @@ export interface RouteDeps {
   profileName: SecurityProfileName;
   policyResolution: PolicyResolution;
   connectedClientsCount?: number;
+  systemConfigApplier?: (systemConfig: SystemConfig) => Promise<void>;
 }
 
 export class HttpError extends Error {

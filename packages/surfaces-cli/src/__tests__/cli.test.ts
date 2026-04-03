@@ -4,9 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { McpToolDefinition } from "@octopus/adapter-mcp";
+import { verifyPasswordHash } from "@octopus/gateway";
 import type { SnapshotSummary } from "@octopus/state-store";
 import type { WorkSession } from "@octopus/work-contracts";
-import type { LocalApp, LocalAppConfig } from "../factory.js";
+import type { GatewayApp, LocalApp, LocalAppConfig } from "../factory.js";
 
 const mocks = vi.hoisted(() => {
   const executeGoal = vi.fn<() => Promise<WorkSession>>(async () => ({
@@ -70,14 +71,14 @@ const mocks = vi.hoisted(() => {
       flushTraces: vi.fn(async () => {})
     }) as unknown as LocalApp
   );
-  const createGatewayApp = vi.fn(() =>
+  const createGatewayApp = vi.fn<() => GatewayApp>(() =>
     ({
       gatewayServer: {
         start: vi.fn(async () => {}),
         stop: vi.fn(async () => {})
       },
       flushTraces: vi.fn(async () => {})
-    }) as unknown as LocalApp
+    }) as unknown as GatewayApp
   );
   const createMcpSecurityClassifier = vi.fn(() => ({
     classifyTool: vi.fn(() => ({ allowed: true, securityCategory: "network" as const }))
@@ -158,6 +159,7 @@ vi.mock("../factory.js", () => ({
 import { buildCli, createDefaultConfig } from "../cli.js";
 
 const tempDirs: string[] = [];
+const originalEnv = { ...process.env };
 
 afterEach(() => {
   mocks.executeGoal.mockClear();
@@ -177,6 +179,7 @@ afterEach(() => {
   mocks.mockSaveReport.mockClear();
   mocks.mockLoadReport.mockClear();
   mocks.mockListReports.mockClear();
+  restoreEnv();
 });
 
 afterEach(async () => {
@@ -959,3 +962,261 @@ describe("buildCli", () => {
     });
   });
 });
+
+describe("createDefaultConfig", () => {
+  it("prefers persistent system config over environment overrides", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    await writePersistentSystemConfig(workspaceRoot, {
+      runtime: {
+        provider: "openai-compatible",
+        model: "gpt-5.4",
+        apiKey: "persisted-key",
+        baseUrl: "https://persisted.example/v1",
+        maxTokens: 2048,
+        temperature: 0.2
+      },
+      auth: {
+        gatewayApiKey: "persisted-gateway",
+        users: [
+          {
+            username: "admin",
+            passwordHash: "scrypt$16384$8$1$salt$hash",
+            role: "admin"
+          }
+        ]
+      },
+      meta: {
+        initialized: true,
+        initializedAt: "2026-04-03T00:00:00.000Z",
+        initializedBy: "admin",
+        schemaVersion: 1
+      }
+    });
+
+    process.env.OCTOPUS_MODEL = "env-model";
+    process.env.OCTOPUS_API_KEY = "env-key";
+    process.env.OCTOPUS_GATEWAY_API_KEY = "env-gateway";
+    process.env.OCTOPUS_USERS_JSON = JSON.stringify([
+      { username: "env-user", passwordHash: "scrypt$16384$8$1$salt$hash", role: "viewer" }
+    ]);
+
+    const config = createDefaultConfig(workspaceRoot, createMockModelClient());
+
+    expect(config.setupMode).toBe(false);
+    expect(config.runtime).toEqual(expect.objectContaining({
+      provider: "openai-compatible",
+      model: "gpt-5.4",
+      apiKey: "persisted-key",
+      baseUrl: "https://persisted.example/v1",
+      maxTokens: 2048,
+      temperature: 0.2,
+      allowModelApiCall: true
+    }));
+    expect(config.gateway).toEqual(expect.objectContaining({
+      apiKey: "persisted-gateway",
+      users: [
+        expect.objectContaining({
+          username: "admin",
+          role: "admin"
+        })
+      ],
+      systemConfigDir: join(workspaceRoot, ".octopus", "system")
+    }));
+  });
+
+  it("uses legacy env mode when both auth and runtime env values are present", () => {
+    const workspaceRoot = join(tmpdir(), "octopus-cli-legacy");
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    process.env.OCTOPUS_PROFILE = "vibe";
+    process.env.OCTOPUS_PROVIDER = "openai-compatible";
+    process.env.OCTOPUS_MODEL = "legacy-model";
+    process.env.OCTOPUS_API_KEY = "legacy-key";
+    process.env.OCTOPUS_ALLOW_MODEL_API_CALL = "true";
+    process.env.OCTOPUS_GATEWAY_API_KEY = "legacy-gateway";
+
+    const config = createDefaultConfig(workspaceRoot, createMockModelClient());
+
+    expect(config.setupMode).toBe(false);
+    expect(config.runtime.model).toBe("legacy-model");
+    expect(config.runtime.apiKey).toBe("legacy-key");
+    expect(config.runtime.allowModelApiCall).toBe(true);
+    expect(config.gateway?.apiKey).toBe("legacy-gateway");
+    expect(stderr).toHaveBeenCalledWith(
+      "[DEPRECATION] Running with legacy environment variables. Use browser-based setup for new deployments: docker compose up, then open the frontend.\n"
+    );
+    stderr.mockRestore();
+  });
+
+  it("enters setup mode when persistent config is missing and legacy env is incomplete", async () => {
+    const workspaceRoot = await createTempWorkspace();
+    process.env.OCTOPUS_PROFILE = "vibe";
+    process.env.OCTOPUS_SETUP_TOKEN = "setup-secret";
+    process.env.OCTOPUS_GATEWAY_API_KEY = "legacy-gateway-only";
+
+    const config = createDefaultConfig(workspaceRoot, createMockModelClient());
+
+    expect(config.setupMode).toBe(true);
+    expect(config.runtime).toEqual(expect.objectContaining({
+      model: "",
+      apiKey: "",
+      allowModelApiCall: false
+    }));
+    expect(config.gateway).toEqual(expect.objectContaining({
+      apiKey: expect.any(String),
+      users: [],
+      setupToken: "setup-secret",
+      systemConfigDir: join(workspaceRoot, ".octopus", "system")
+    }));
+    await expect(
+      config.modelClient.completeTurn({
+        session: {} as never,
+        results: [],
+        config: config.runtime
+      })
+    ).rejects.toThrow("System not initialized");
+  });
+
+  it("allows gateway run in setup mode without requiring runtime credentials", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const configFactory = vi.fn(() => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      setupMode: true,
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "",
+        apiKey: "",
+        maxTokens: 1024,
+        temperature: 0,
+        allowModelApiCall: false
+      },
+      gateway: {
+        port: 4321,
+        host: "127.0.0.1",
+        apiKey: "temporary-key",
+        users: [],
+        setupToken: "setup-secret",
+        systemConfigDir: "/workspace/.octopus/system"
+      },
+      modelClient: {
+        async completeTurn() {
+          throw new Error("System not initialized");
+        }
+      }
+    }));
+    const program = buildCli(configFactory, {
+      createGatewayApp: mocks.createGatewayApp,
+      waitForGatewayStop: async () => {}
+    });
+
+    await program.parseAsync(["gateway", "run", "--profile", "vibe"], { from: "user" });
+    expect(mocks.createGatewayApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        setupMode: true,
+        gateway: expect.objectContaining({
+          setupToken: "setup-secret"
+        })
+      })
+    );
+    stdout.mockRestore();
+  });
+
+  it("hashes passwords for persistent browser users", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const configFactory = vi.fn(() => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: createMockModelClient()
+    }));
+    const program = buildCli(configFactory);
+
+    await program.parseAsync(["release", "hash-password", "super-secret"], { from: "user" });
+
+    const output = stdout.mock.calls.map(([chunk]) => String(chunk)).join("").trim();
+    expect(output).toMatch(/^scrypt\$16384\$8\$1\$/);
+    await expect(verifyPasswordHash("super-secret", output)).resolves.toBe(true);
+    stdout.mockRestore();
+  });
+});
+
+function restoreEnv(): void {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in originalEnv)) {
+      delete process.env[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(originalEnv)) {
+    if (value === undefined) {
+      delete process.env[key];
+      continue;
+    }
+    process.env[key] = value;
+  }
+}
+
+function createMockModelClient() {
+  return {
+    async completeTurn() {
+      return {
+        response: {
+          kind: "completion" as const,
+          evidence: "not used"
+        },
+        telemetry: {
+          endpoint: "https://example.invalid",
+          durationMs: 0,
+          success: true
+        }
+      };
+    }
+  };
+}
+
+async function createTempWorkspace(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "octopus-cli-config-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+async function writePersistentSystemConfig(
+  workspaceRoot: string,
+  config: {
+    runtime: {
+      provider: string;
+      model: string;
+      apiKey: string;
+      baseUrl?: string;
+      maxTokens?: number;
+      temperature?: number;
+    };
+    auth: {
+      gatewayApiKey: string;
+      users: Array<{
+        username: string;
+        passwordHash: string;
+        role: "viewer" | "operator" | "admin";
+      }>;
+    };
+    meta: {
+      initialized: boolean;
+      initializedAt: string;
+      initializedBy: string;
+      schemaVersion: number;
+    };
+  }
+): Promise<void> {
+  const systemDir = join(workspaceRoot, ".octopus", "system");
+  await mkdir(systemDir, { recursive: true });
+  await writeFile(join(systemDir, "runtime.json"), `${JSON.stringify(config.runtime, null, 2)}\n`, "utf8");
+  await writeFile(join(systemDir, "auth.json"), `${JSON.stringify(config.auth, null, 2)}\n`, "utf8");
+  await writeFile(join(systemDir, "meta.json"), `${JSON.stringify(config.meta, null, 2)}\n`, "utf8");
+}

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkEvent } from "@octopus/observability";
 import type { ActionHandler } from "@octopus/exec-substrate";
 
-import { createLocalWorkEngine } from "../factory.js";
+import { createLocalWorkEngine, rebuildRuntimeStack } from "../factory.js";
 
 const tempDirs: string[] = [];
 
@@ -257,5 +257,95 @@ describe("createLocalWorkEngine", () => {
 
     await app.flushTraces();
     expect(stopAll).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("rebuildRuntimeStack", () => {
+  it("rebuilds runtime, engine, policy, and gateway auth from persistent system config", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-rebuild-runtime-"));
+    tempDirs.push(workspaceRoot);
+
+    const app = await createLocalWorkEngine({
+      workspaceRoot,
+      dataDir: join(workspaceRoot, ".octopus"),
+      runtime: {
+        provider: "openai-compatible",
+        model: "",
+        apiKey: "",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: false
+      },
+      profile: "vibe",
+      modelClient: {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      }
+    });
+
+    const rebuilt = await rebuildRuntimeStack(
+      {
+        workspaceRoot,
+        dataDir: join(workspaceRoot, ".octopus"),
+        runtime: {
+          provider: "openai-compatible",
+          model: "",
+          apiKey: "",
+          maxTokens: 1_024,
+          temperature: 0,
+          allowModelApiCall: false
+        },
+        profile: "vibe",
+        modelClient: {
+          async completeTurn() {
+            throw new Error("not used in this test");
+          }
+        }
+      },
+      {
+        runtime: {
+          provider: "openai-compatible",
+          model: "gpt-5.4",
+          apiKey: "persisted-key",
+          baseUrl: "https://example.invalid/v1",
+          maxTokens: 2048,
+          temperature: 0.1
+        },
+        auth: {
+          gatewayApiKey: "persisted-gateway",
+          users: [
+            {
+              username: "admin",
+              passwordHash: "scrypt$16384$8$1$salt$hash",
+              role: "admin"
+            }
+          ]
+        },
+        meta: {
+          initialized: true,
+          initializedAt: "2026-04-03T00:00:00.000Z",
+          initializedBy: "admin",
+          schemaVersion: 1
+        }
+      },
+      app.store,
+      app.eventBus
+    );
+
+    expect(typeof rebuilt.engine.executeGoal).toBe("function");
+    expect(typeof rebuilt.runtime.requestNextAction).toBe("function");
+    expect(rebuilt.policyResolution.profile).toBe("vibe");
+    expect(rebuilt.auth).toEqual({
+      apiKey: "persisted-gateway",
+      users: [
+        expect.objectContaining({
+          username: "admin",
+          role: "admin"
+        })
+      ]
+    });
+
+    await app.flushTraces();
   });
 });

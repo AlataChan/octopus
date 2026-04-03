@@ -5,6 +5,7 @@ coverage/
 .DS_Store
 .octopus/
 .ccb/
+.worktrees/
 *.tsbuildinfo
 .pnpm-store/
 packages/*/src/**/*.js

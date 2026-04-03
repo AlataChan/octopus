@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { McpToolDefinition } from "@octopus/adapter-mcp";
+import { verifyPasswordHash } from "@octopus/gateway";
 import type { SnapshotSummary } from "@octopus/state-store";
 import type { WorkSession } from "@octopus/work-contracts";
 import type { GatewayApp, LocalApp, LocalAppConfig } from "../factory.js";
@@ -1112,6 +1113,31 @@ describe("createDefaultConfig", () => {
         })
       })
     );
+    stdout.mockRestore();
+  });
+
+  it("hashes passwords for persistent browser users", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const configFactory = vi.fn(() => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: createMockModelClient()
+    }));
+    const program = buildCli(configFactory);
+
+    await program.parseAsync(["release", "hash-password", "super-secret"], { from: "user" });
+
+    const output = stdout.mock.calls.map(([chunk]) => String(chunk)).join("").trim();
+    expect(output).toMatch(/^scrypt\$16384\$8\$1\$/);
+    await expect(verifyPasswordHash("super-secret", output)).resolves.toBe(true);
     stdout.mockRestore();
   });
 });

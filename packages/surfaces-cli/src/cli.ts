@@ -26,6 +26,7 @@ import { EventBus, type WorkEvent } from "@octopus/observability";
 import { TraceReader } from "@octopus/observability";
 import { HttpModelClient, type ModelClient } from "@octopus/runtime-embedded";
 import type { SecurityProfileName } from "@octopus/security";
+import { createPasswordHash } from "@octopus/gateway";
 import { createWorkGoal } from "@octopus/work-contracts";
 import { EvalRunner, buildReport, listReports, loadEvalSuite, loadReport, saveReport } from "@octopus/eval-runner";
 import { loadBuiltinPacks, loadCustomPacks, resolveGoal, validateParams } from "@octopus/work-packs";
@@ -521,6 +522,15 @@ export function buildCli(
         await app.gatewayServer.stop();
         await app.flushTraces();
       }
+    });
+
+  const releaseCommand = program.command("release");
+  releaseCommand
+    .command("hash-password")
+    .argument("<password>")
+    .description("Generate a scrypt password hash for persistent browser users")
+    .action(async (password: string) => {
+      process.stdout.write(`${await createPasswordHash(password)}\n`);
     });
 
   const automationCommand = program.command("automation");

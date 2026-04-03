@@ -12,6 +12,7 @@ export * from "./routes/sessions.js";
 export * from "./routes/shared.js";
 export * from "./routes/status.js";
 export * from "./server.js";
+export * from "./system-config.js";
 export * from "./types.js";
 export * from "./ws/event-stream.js";
 export * from "./ws/runtime-protocol.js";

@@ -15,6 +15,33 @@ export interface GatewayUserAccount {
   role: GatewayRole;
 }
 
+export interface SystemRuntimeConfig {
+  provider: string;
+  model: string;
+  apiKey: string;
+  baseUrl?: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
+export interface SystemAuthConfig {
+  gatewayApiKey: string;
+  users: GatewayUserAccount[];
+}
+
+export interface SystemMeta {
+  initialized: boolean;
+  initializedAt: string;
+  initializedBy: string;
+  schemaVersion: number;
+}
+
+export interface SystemConfig {
+  runtime: SystemRuntimeConfig;
+  auth: SystemAuthConfig;
+  meta: SystemMeta;
+}
+
 export interface OperatorContext {
   operatorId: string;
   role: GatewayRole;

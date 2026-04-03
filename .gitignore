@@ -15,6 +15,7 @@ packages/*/src/**/*.d.ts.map
 .env
 .env.*
 .env.local
+!.env.example
 PLAN.md
 STATUS.md
 TODO.md

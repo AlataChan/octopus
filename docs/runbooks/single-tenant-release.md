@@ -4,27 +4,26 @@
 
 - Node.js 20.19+ or 22.x for local runs
 - Docker Engine for containerized runs
-- one shared workspace mounted at `/workspace`
-- `.octopus/` data persisted inside that workspace mount
+- one shared named volume mounted at `/workspace`
+- `.octopus/` state, system config, sessions, snapshots, and traces persisted inside that volume
 - reverse proxy or the bundled `web` container terminates browser traffic and forwards `/auth`, `/api`, `/ws`, and `/health` to the gateway
 
 ## Required Environment
 
 Copy `.env.example` to `.env` and set:
 
-- `OCTOPUS_MODEL`
-- `OCTOPUS_API_KEY`
-- `OCTOPUS_ALLOW_MODEL_API_CALL=true`
-- `OCTOPUS_GATEWAY_API_KEY`
-- `OCTOPUS_USERS_JSON`
+- `OCTOPUS_SETUP_TOKEN`
 
-`OCTOPUS_USERS_JSON` must contain pre-generated `scrypt$16384$8$1$...$...` hashes. The gateway does not expose self-serve account management.
+Optional infrastructure overrides:
+
+- `OCTOPUS_WEB_PORT`
+
+`OCTOPUS_SETUP_TOKEN` is only used by the browser setup wizard before initialization completes. After the first successful setup, the gateway switches to persistent system config under `/workspace/.octopus/system`.
 
 ## Start
 
 ```bash
 cp .env.example .env
-mkdir -p workspace
 docker compose -f docker-compose.release.yml up --build -d
 ```
 
@@ -32,6 +31,24 @@ Endpoints:
 
 - web console: `http://localhost:${OCTOPUS_WEB_PORT:-8080}`
 - gateway health: `http://localhost:${OCTOPUS_WEB_PORT:-8080}/health`
+
+## First Browser Initialization
+
+1. Open the web console in a browser.
+2. Enter the `OCTOPUS_SETUP_TOKEN` value from `.env`.
+3. Configure the runtime:
+   - model ID
+   - model API key
+   - optional OpenAI-compatible base URL
+4. Create the first browser admin account.
+5. Optionally add viewer/operator accounts.
+6. Finish initialization, then sign in with the admin account you just created.
+
+Notes:
+
+- The setup token becomes unusable after initialization completes.
+- The runtime and browser accounts are persisted under `/workspace/.octopus/system`.
+- No `OCTOPUS_MODEL`, `OCTOPUS_API_KEY`, `OCTOPUS_GATEWAY_API_KEY`, or `OCTOPUS_USERS_JSON` values are required in `.env` for the release path anymore.
 
 ## Stop
 
@@ -46,17 +63,28 @@ docker compose -f docker-compose.release.yml down
 docker compose -f docker-compose.release.yml up -d
 ```
 
-## Rotate Credentials
+## Re-Run Initialization
 
-1. Update `.env` with a new `OCTOPUS_GATEWAY_API_KEY` and/or new `OCTOPUS_USERS_JSON` hashes.
-2. Restart the stack.
-3. Expect browser sessions to be invalidated because session tokens are in-memory.
+1. Stop the stack.
+2. Remove the named workspace volume:
+
+```bash
+docker compose -f docker-compose.release.yml down -v
+```
+
+3. Update `.env` with a new `OCTOPUS_SETUP_TOKEN` if needed.
+4. Start the stack again.
+5. Complete the browser setup wizard from scratch.
 
 ## Inspect Failed Tasks
 
 1. Open the task in the web console.
 2. Inspect blocked reason, artifacts, checkpoints, and recent activity.
-3. If needed, open the mounted workspace and inspect `.octopus/sessions`, `.octopus/snapshots`, and `.octopus/traces`.
+3. If needed, open a shell inside the gateway container and inspect `/workspace/.octopus/sessions`, `/workspace/.octopus/snapshots`, and `/workspace/.octopus/traces`.
+
+```bash
+docker compose -f docker-compose.release.yml exec gateway sh
+```
 
 ## Restore From Checkpoints
 
@@ -73,18 +101,21 @@ node packages/surfaces-cli/dist/index.js rollback <session-id> [snapshot-id] --p
 Backup:
 
 ```bash
-tar -czf octopus-backup.tgz workspace/.octopus
+docker compose -f docker-compose.release.yml exec gateway tar -czf /tmp/octopus-backup.tgz -C /workspace .octopus
+docker compose -f docker-compose.release.yml cp gateway:/tmp/octopus-backup.tgz ./octopus-backup.tgz
 ```
 
 Restore:
 
 ```bash
-tar -xzf octopus-backup.tgz -C workspace
+docker compose -f docker-compose.release.yml cp ./octopus-backup.tgz gateway:/tmp/octopus-backup.tgz
+docker compose -f docker-compose.release.yml exec gateway tar -xzf /tmp/octopus-backup.tgz -C /workspace
 ```
 
 ## Troubleshooting
 
 - `Authentication required.`: confirm the browser is using `/auth/login` and not the bootstrap API key route.
-- `Invalid username or password.`: re-check the `scrypt` hash in `OCTOPUS_USERS_JSON`.
-- no tasks visible after restart: confirm the workspace mount still contains `.octopus/`.
+- `Valid setup token required.`: confirm the browser setup wizard is using the exact `OCTOPUS_SETUP_TOKEN` from `.env`.
+- `Invalid username or password.`: re-check the persisted `/workspace/.octopus/system/auth.json` user entries.
+- no tasks visible after restart: confirm the named volume still contains `/workspace/.octopus/`.
 - UI loads but API fails: confirm nginx is proxying `/auth`, `/api`, `/ws`, and `/health` to the gateway service.

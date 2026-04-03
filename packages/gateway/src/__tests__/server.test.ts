@@ -84,6 +84,43 @@ describe("GatewayServer", () => {
     expect(response.body).toMatchObject({ status: "ok", activeSessions: 1 });
   });
 
+  it("serves setup status without auth", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-setup-"));
+    tempDirs.push(workspaceRoot);
+    const server = createGatewayServer({
+      workspaceRoot,
+      systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+      setupToken: "setup-secret"
+    });
+
+    const response = await dispatch(server, "GET", "/api/setup/status");
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({
+      initialized: false,
+      workspaceWritable: true
+    });
+  });
+
+  it("bypasses normal auth for setup validation but still requires the setup token header", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-setup-"));
+    tempDirs.push(workspaceRoot);
+    const server = createGatewayServer({
+      workspaceRoot,
+      systemConfigDir: join(workspaceRoot, ".octopus", "system"),
+      setupToken: "setup-secret"
+    });
+
+    const missing = await dispatch(server, "POST", "/api/setup/validate-token");
+    const valid = await dispatch(server, "POST", "/api/setup/validate-token", undefined, {
+      "x-setup-token": "setup-secret"
+    });
+
+    expect(missing.statusCode).toBe(401);
+    expect(valid.statusCode).toBe(200);
+    expect(valid.body).toEqual({ valid: true });
+  });
+
   it("rejects token mint without API key auth", async () => {
     const server = createGatewayServer();
     const response = await dispatch(server, "POST", "/auth/token");
@@ -797,6 +834,7 @@ function createGatewayServerHarness(
         port: 0,
         host: "127.0.0.1",
         workspaceRoot: "/workspace",
+        systemConfigDir: "/workspace/.octopus/system",
         auth: {
           apiKey: "secret",
           defaultPermissions: [

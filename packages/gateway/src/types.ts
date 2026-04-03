@@ -61,6 +61,9 @@ export interface GatewayConfig {
   port: number;
   host: string;
   workspaceRoot: string;
+  systemConfigDir?: string;
+  setupToken?: string;
+  setupMode?: boolean;
   tls?: {
     cert: string;
     key: string;

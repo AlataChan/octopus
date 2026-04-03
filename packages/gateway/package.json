@@ -18,6 +18,7 @@
   "dependencies": {
     "@octopus/agent-runtime": "workspace:*",
     "@octopus/observability": "workspace:*",
+    "@octopus/runtime-embedded": "workspace:*",
     "@octopus/security": "workspace:*",
     "@octopus/state-store": "workspace:*",
     "@octopus/work-contracts": "workspace:*",

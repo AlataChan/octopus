@@ -11,7 +11,7 @@ import type { PolicyResolution, SecurityPolicy, SecurityProfileName } from "@oct
 import type { StateStore } from "@octopus/state-store";
 import type { WorkEngine } from "@octopus/work-core";
 
-import { TokenStore } from "./auth.js";
+import { TokenStore, validateApiKey } from "./auth.js";
 import { authenticateRequest, extractCredentials } from "./middleware/auth-middleware.js";
 import { validateOrigin } from "./middleware/origin-guard.js";
 import { isLoopback, isSecureConnection } from "./middleware/tls-guard.js";
@@ -22,6 +22,12 @@ import { handleClarification } from "./routes/clarification.js";
 import { handleControl } from "./routes/control.js";
 import { handleSubmitGoal } from "./routes/goals.js";
 import { handleHealth } from "./routes/health.js";
+import {
+  handleInitialize,
+  handleSetupStatus,
+  handleValidateRuntime,
+  handleValidateToken
+} from "./routes/setup.js";
 import { HttpError, readJsonBody, writeJson, type RouteDeps } from "./routes/shared.js";
 import {
   handleGetEvents,
@@ -171,9 +177,36 @@ export class GatewayServer {
         return;
       }
 
+      if (method === "GET" && url.pathname === "/api/setup/status") {
+        writeJson(res, 200, await handleSetupStatus(deps));
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/api/setup/validate-token") {
+        this.assertSetupToken(req);
+        writeJson(res, 200, await handleValidateToken(deps));
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/api/setup/validate-runtime") {
+        this.assertSetupToken(req);
+        writeJson(res, 200, await handleValidateRuntime(deps, await readJsonBody(req)));
+        return;
+      }
+
+      if (method === "POST" && url.pathname === "/api/setup/initialize") {
+        this.assertSetupToken(req);
+        writeJson(res, 200, await handleInitialize(deps, await readJsonBody(req)));
+        return;
+      }
+
       if (method === "POST" && url.pathname === "/auth/login") {
         writeJson(res, 200, await handleLogin(deps, await readJsonBody(req)));
         return;
+      }
+
+      if (this.config.setupMode && this.isUnavailableDuringSetup(url.pathname)) {
+        throw new HttpError(503, "System not initialized.");
       }
 
       const operator = authenticateRequest(req, this.config.auth, this.tokenStore);
@@ -314,6 +347,26 @@ export class GatewayServer {
       policyResolution: this.policyResolution,
       connectedClientsCount: this.connectedSockets.size
     };
+  }
+
+  private assertSetupToken(req: IncomingMessage): void {
+    const provided = req.headers["x-setup-token"];
+    const candidate = Array.isArray(provided) ? provided[0] : provided;
+    const configured = this.config.setupToken;
+
+    if (
+      typeof candidate !== "string"
+      || candidate.length === 0
+      || typeof configured !== "string"
+      || configured.length === 0
+      || !validateApiKey(candidate, configured)
+    ) {
+      throw new HttpError(401, "Valid setup token required.");
+    }
+  }
+
+  private isUnavailableDuringSetup(pathname: string): boolean {
+    return pathname.startsWith("/api/") || pathname === "/auth/token" || pathname === "/auth/logout";
   }
 
   private baseUrl(req: IncomingMessage): string {

@@ -114,6 +114,9 @@ importers:
       '@octopus/observability':
         specifier: workspace:*
         version: link:../observability
+      '@octopus/runtime-embedded':
+        specifier: workspace:*
+        version: link:../runtime-embedded
       '@octopus/security':
         specifier: workspace:*
         version: link:../security
@@ -236,6 +239,9 @@ importers:
       '@octopus/observability':
         specifier: workspace:*
         version: link:../observability
+      '@octopus/state-store':
+        specifier: workspace:*
+        version: link:../state-store
       '@octopus/work-contracts':
         specifier: workspace:*
         version: link:../work-contracts

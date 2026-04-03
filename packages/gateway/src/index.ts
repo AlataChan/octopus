@@ -10,6 +10,7 @@ export * from "./routes/goals.js";
 export * from "./routes/health.js";
 export * from "./routes/sessions.js";
 export * from "./routes/shared.js";
+export * from "./routes/setup.js";
 export * from "./routes/status.js";
 export * from "./server.js";
 export * from "./system-config.js";

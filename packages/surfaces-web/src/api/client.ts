@@ -70,6 +70,47 @@ export interface RollbackResponse {
   snapshotId: string;
 }
 
+export interface SetupStatusResponse {
+  initialized: boolean;
+  workspaceWritable: boolean;
+}
+
+export interface SetupTokenValidationResponse {
+  valid: boolean;
+}
+
+export interface SetupRuntimeConfigInput {
+  provider: "openai-compatible";
+  model: string;
+  apiKey: string;
+  baseUrl?: string;
+}
+
+export interface SetupRuntimeValidationResponse {
+  valid: boolean;
+  latencyMs?: number;
+  error?: string;
+}
+
+export interface SetupAdditionalUserInput {
+  username: string;
+  password: string;
+  role: "operator" | "viewer";
+}
+
+export interface SetupInitializeInput {
+  runtime: SetupRuntimeConfigInput;
+  admin: {
+    username: string;
+    password: string;
+  };
+  additionalUsers?: SetupAdditionalUserInput[];
+}
+
+export interface SetupInitializeResponse {
+  initialized: true;
+}
+
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
 export class GatewayClient {
@@ -127,12 +168,57 @@ export class GatewayClient {
     throw new Error(await readErrorMessage(response, "Logout failed."));
   }
 
+  clearAuthSession(): void {
+    this.authStore.clear();
+  }
+
   isAuthenticated(): boolean {
     return Boolean(this.authStore.getSession());
   }
 
   getAuthSession(): AuthSession | null {
     return this.authStore.getSession();
+  }
+
+  async getSetupStatus(): Promise<SetupStatusResponse> {
+    return this.requestJsonWithOptions<SetupStatusResponse>("GET", "/api/setup/status", {
+      auth: false
+    });
+  }
+
+  async validateSetupToken(token: string): Promise<SetupTokenValidationResponse> {
+    return this.requestJsonWithOptions<SetupTokenValidationResponse>("POST", "/api/setup/validate-token", {
+      auth: false,
+      headers: {
+        "X-Setup-Token": token
+      }
+    });
+  }
+
+  async validateRuntime(
+    token: string,
+    runtime: SetupRuntimeConfigInput
+  ): Promise<SetupRuntimeValidationResponse> {
+    return this.requestJsonWithOptions<SetupRuntimeValidationResponse>("POST", "/api/setup/validate-runtime", {
+      auth: false,
+      headers: {
+        "X-Setup-Token": token
+      },
+      body: runtime
+    });
+  }
+
+  async initialize(
+    token: string,
+    payload: SetupInitializeInput
+  ): Promise<SetupInitializeResponse> {
+    return this.requestJsonWithOptions<SetupInitializeResponse>("POST", "/api/setup/initialize", {
+      auth: false,
+      headers: {
+        "X-Setup-Token": token
+      },
+      body: payload
+    });
   }
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -267,21 +353,7 @@ export class GatewayClient {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const headers = {
-      ...this.getAuthHeaders(),
-      ...(body === undefined ? {} : { "Content-Type": "application/json" })
-    };
-    const response = await fetch(resolveHttpUrl(this.baseUrl, path), {
-      method,
-      headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) })
-    });
-
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response, "Gateway request failed."));
-    }
-
-    return response.json() as Promise<T>;
+    return this.requestJsonWithOptions<T>(method, path, { body });
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -296,6 +368,33 @@ export class GatewayClient {
       throw new Error("Not authenticated.");
     }
     return session;
+  }
+
+  private async requestJsonWithOptions<T>(
+    method: "GET" | "POST",
+    path: string,
+    options: {
+      auth?: boolean;
+      headers?: Record<string, string>;
+      body?: unknown;
+    } = {}
+  ): Promise<T> {
+    const headers = {
+      ...(options.auth === false ? {} : this.getAuthHeaders()),
+      ...(options.headers ?? {}),
+      ...(options.body === undefined ? {} : { "Content-Type": "application/json" })
+    };
+    const response = await fetch(resolveHttpUrl(this.baseUrl, path), {
+      method,
+      headers,
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) })
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response, "Gateway request failed."));
+    }
+
+    return response.json() as Promise<T>;
   }
 }
 

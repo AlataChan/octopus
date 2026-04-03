@@ -3,11 +3,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeSessionSummary, makeStatus, makeWorkSession } from "./fixtures.js";
 
-const { listSessions, getSession, listSnapshots, getStatus, submitGoal, getArtifactContent, connectEventStream, login, logout, rollbackSession, authState } = vi.hoisted(() => ({
+const {
+  listSessions,
+  getSession,
+  listSnapshots,
+  getStatus,
+  getSetupStatus,
+  validateSetupToken,
+  validateRuntime,
+  initialize,
+  submitGoal,
+  getArtifactContent,
+  connectEventStream,
+  login,
+  logout,
+  rollbackSession,
+  authState
+} = vi.hoisted(() => ({
   listSessions: vi.fn(),
   getSession: vi.fn(),
   listSnapshots: vi.fn(),
   getStatus: vi.fn(),
+  getSetupStatus: vi.fn(),
+  validateSetupToken: vi.fn(),
+  validateRuntime: vi.fn(),
+  initialize: vi.fn(),
   submitGoal: vi.fn(),
   getArtifactContent: vi.fn(),
   connectEventStream: vi.fn(() => ({ detach: vi.fn() })),
@@ -51,6 +71,10 @@ vi.mock("../api/client.js", () => {
       return authState.authenticated;
     }
 
+    clearAuthSession() {
+      authState.authenticated = false;
+    }
+
     login = login;
 
     logout = logout;
@@ -59,6 +83,10 @@ vi.mock("../api/client.js", () => {
     getSession = getSession;
     listSnapshots = listSnapshots;
     getStatus = getStatus;
+    getSetupStatus = getSetupStatus;
+    validateSetupToken = validateSetupToken;
+    validateRuntime = validateRuntime;
+    initialize = initialize;
     submitGoal = submitGoal;
     getArtifactContent = getArtifactContent;
     rollbackSession = rollbackSession;
@@ -82,6 +110,10 @@ describe("App dashboard shell", () => {
     listSessions.mockReset();
     getSession.mockReset();
     getStatus.mockReset();
+    getSetupStatus.mockReset();
+    validateSetupToken.mockReset();
+    validateRuntime.mockReset();
+    initialize.mockReset();
     submitGoal.mockReset();
     getArtifactContent.mockReset();
     listSnapshots.mockReset();
@@ -94,6 +126,18 @@ describe("App dashboard shell", () => {
       makeSessionSummary({ id: "session-2", state: "blocked" }),
       makeSessionSummary({ id: "session-3", state: "completed" })
     ]);
+    getSetupStatus.mockResolvedValue({
+      initialized: true,
+      workspaceWritable: true
+    });
+    validateSetupToken.mockResolvedValue({ valid: true });
+    validateRuntime.mockResolvedValue({
+      valid: true,
+      latencyMs: 120
+    });
+    initialize.mockResolvedValue({
+      initialized: true
+    });
     getSession.mockResolvedValue(makeWorkSession({
       id: "session-1",
       state: "blocked",
@@ -124,6 +168,134 @@ describe("App dashboard shell", () => {
     });
   });
 
+  it("shows the setup wizard before login when the gateway is not initialized", async () => {
+    authState.authenticated = false;
+    getSetupStatus.mockResolvedValue({
+      initialized: false,
+      workspaceWritable: true
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "验证设置令牌" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("用户名")).not.toBeInTheDocument();
+    expect(listSessions).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it("shows a retry panel when the setup status request fails", async () => {
+    authState.authenticated = false;
+    getSetupStatus
+      .mockRejectedValueOnce(new Error("Gateway request failed."))
+      .mockResolvedValueOnce({
+        initialized: false,
+        workspaceWritable: true
+      });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "无法连接网关" })).toBeInTheDocument();
+    expect(screen.getByText("网关请求失败。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByRole("heading", { name: "验证设置令牌" })).toBeInTheDocument();
+    expect(getSetupStatus).toHaveBeenCalledTimes(2);
+  }, 30_000);
+
+  it("completes the setup wizard and returns to login after initialization", async () => {
+    authState.authenticated = false;
+    getSetupStatus.mockResolvedValue({
+      initialized: false,
+      workspaceWritable: true
+    });
+
+    render(<App />);
+
+    fireEvent.input(await screen.findByLabelText("设置令牌"), {
+      target: { value: "setup-token-1" }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "验证令牌" }).closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(validateSetupToken).toHaveBeenCalledWith("setup-token-1");
+    });
+
+    fireEvent.input(await screen.findByLabelText("模型 ID"), {
+      target: { value: "gpt-4.1-mini" }
+    });
+    fireEvent.input(screen.getByLabelText("模型 API Key"), {
+      target: { value: "sk-test" }
+    });
+    fireEvent.input(screen.getByLabelText("兼容接口 Base URL"), {
+      target: { value: "https://example.test/v1" }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "验证运行时" }).closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(validateRuntime).toHaveBeenCalledWith("setup-token-1", {
+        provider: "openai-compatible",
+        model: "gpt-4.1-mini",
+        apiKey: "sk-test",
+        baseUrl: "https://example.test/v1"
+      });
+    });
+
+    fireEvent.input(await screen.findByLabelText("管理员用户名"), {
+      target: { value: "ops-admin" }
+    });
+    fireEvent.input(screen.getByLabelText("管理员密码"), {
+      target: { value: "super-secret" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+
+    fireEvent.input(await screen.findByLabelText("附加账号用户名"), {
+      target: { value: "viewer-1" }
+    });
+    fireEvent.input(screen.getByLabelText("附加账号密码"), {
+      target: { value: "viewer-secret" }
+    });
+    fireEvent.change(screen.getByLabelText("附加账号角色"), {
+      target: { value: "viewer" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "添加账号" }));
+
+    expect(await screen.findByText("viewer-1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+
+    expect(await screen.findByRole("heading", { name: "检查初始化配置" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "完成初始化" }));
+
+    await waitFor(() => {
+      expect(initialize).toHaveBeenCalledWith("setup-token-1", {
+        runtime: {
+          provider: "openai-compatible",
+          model: "gpt-4.1-mini",
+          apiKey: "sk-test",
+          baseUrl: "https://example.test/v1"
+        },
+        admin: {
+          username: "ops-admin",
+          password: "super-secret"
+        },
+        additionalUsers: [
+          {
+            username: "viewer-1",
+            password: "viewer-secret",
+            role: "viewer"
+          }
+        ]
+      });
+    });
+
+    expect(await screen.findByRole("heading", { name: "初始化完成" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "前往登录" }));
+
+    expect(await screen.findByLabelText("用户名")).toBeInTheDocument();
+  }, 30_000);
+
   it("defaults to Chinese and allows switching to English", async () => {
     render(<App />);
 
@@ -131,7 +303,9 @@ describe("App dashboard shell", () => {
     expect(await screen.findByText("全部会话")).toBeInTheDocument();
     const totalCard = screen.getByText("全部会话").closest("article");
     expect(totalCard).not.toBeNull();
-    expect(within(totalCard as HTMLElement).getByText("3")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(totalCard as HTMLElement).getByText("3")).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "状态" }));
 

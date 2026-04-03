@@ -42,7 +42,12 @@ export function isSecureConnection(req: IncomingMessage, config: GatewayConfig):
   if (config.trustProxyCIDRs?.length && isInCIDRRange(socket.remoteAddress, config.trustProxyCIDRs)) {
     const forwardedProto = req.headers["x-forwarded-proto"];
     const protocol = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
-    return protocol === "https";
+    if (protocol === "https") {
+      return true;
+    }
+    if (config.allowInsecureTrustedProxy === true) {
+      return true;
+    }
   }
 
   return false;

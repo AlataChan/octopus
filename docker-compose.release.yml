@@ -8,6 +8,8 @@ services:
     environment:
       OCTOPUS_GATEWAY_HOST: 0.0.0.0
       OCTOPUS_GATEWAY_PORT: 4321
+      OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS: 172.30.0.0/24
+      OCTOPUS_GATEWAY_ALLOW_INSECURE_TRUST_PROXY: true
       OCTOPUS_SETUP_TOKEN: ${OCTOPUS_SETUP_TOKEN}
     volumes:
       - octopus-data:/workspace
@@ -32,6 +34,9 @@ services:
 networks:
   octopus-release:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   octopus-data:

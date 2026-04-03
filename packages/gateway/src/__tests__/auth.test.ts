@@ -239,6 +239,33 @@ describe("gateway auth foundation", () => {
     expect(
       isSecureConnection(
         createRequest(
+          {},
+          {
+            remoteAddress: "10.0.1.10"
+          }
+        ),
+        config
+      )
+    ).toBe(false);
+    expect(
+      isSecureConnection(
+        createRequest(
+          {
+            "x-forwarded-proto": "http"
+          },
+          {
+            remoteAddress: "10.0.1.10"
+          }
+        ),
+        {
+          ...config,
+          allowInsecureTrustedProxy: true
+        }
+      )
+    ).toBe(true);
+    expect(
+      isSecureConnection(
+        createRequest(
           {
             "x-forwarded-proto": "https"
           },

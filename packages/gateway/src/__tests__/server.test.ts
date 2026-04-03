@@ -76,6 +76,28 @@ describe("GatewayServer", () => {
     expect(vibeServer.origin).toContain("127.0.0.1");
   });
 
+  it("keeps a non-loopback vibe host when trusted proxy CIDRs are configured", async () => {
+    const vibeServer = createGatewayServer(
+      {
+        host: "0.0.0.0",
+        trustProxyCIDRs: ["172.30.0.0/24"]
+      },
+      "vibe",
+      {
+        profile: "vibe",
+        source: "builtin",
+        allowRemote: false,
+        defaultDeny: false
+      }
+    );
+    servers.push(vibeServer);
+    installFakeNodeServer(vibeServer);
+
+    await vibeServer.start();
+
+    expect((vibeServer as unknown as { config: GatewayConfig }).config.host).toBe("0.0.0.0");
+  });
+
   it("serves health without auth", async () => {
     const server = createGatewayServer();
     const response = await dispatch(server, "GET", "/health");

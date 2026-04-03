@@ -697,6 +697,9 @@ export function createDefaultConfig(workspaceRoot: string, modelClient: ModelCli
   const trustProxyCIDRs =
     readGatewayCidrs(process.env.OCTOPUS_GATEWAY_TRUST_PROXY_CIDRS)
     ?? fileConfig.gateway?.trustProxyCIDRs;
+  const allowInsecureTrustedProxy =
+    readBoolean(process.env.OCTOPUS_GATEWAY_ALLOW_INSECURE_TRUST_PROXY)
+    ?? fileConfig.gateway?.allowInsecureTrustedProxy;
   const enableRuntimeProxy =
     readBoolean(process.env.OCTOPUS_GATEWAY_ENABLE_RUNTIME_PROXY)
     ?? fileConfig.gateway?.enableRuntimeProxy;
@@ -715,6 +718,7 @@ export function createDefaultConfig(workspaceRoot: string, modelClient: ModelCli
     systemConfigDir,
     ...(fileConfig.gateway?.tls ? { tls: fileConfig.gateway.tls } : {}),
     ...(trustProxyCIDRs ? { trustProxyCIDRs } : {}),
+    ...(allowInsecureTrustedProxy === undefined ? {} : { allowInsecureTrustedProxy }),
     ...(enableRuntimeProxy === undefined ? {} : { enableRuntimeProxy })
   };
 
@@ -937,6 +941,7 @@ interface StoredGatewayConfig {
     key: string;
   };
   trustProxyCIDRs?: string[];
+  allowInsecureTrustedProxy?: boolean;
   enableRuntimeProxy?: boolean;
 }
 
@@ -1149,6 +1154,8 @@ function readGatewayConfig(value: unknown): StoredGatewayConfig | undefined {
   const trustProxyCIDRs = Array.isArray(raw.trustProxyCIDRs)
     ? raw.trustProxyCIDRs.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : undefined;
+  const allowInsecureTrustedProxy =
+    typeof raw.allowInsecureTrustedProxy === "boolean" ? raw.allowInsecureTrustedProxy : undefined;
   const enableRuntimeProxy = typeof raw.enableRuntimeProxy === "boolean" ? raw.enableRuntimeProxy : undefined;
 
   return {
@@ -1157,6 +1164,7 @@ function readGatewayConfig(value: unknown): StoredGatewayConfig | undefined {
     ...(apiKey ? { apiKey } : {}),
     ...(tls ? { tls } : {}),
     ...(trustProxyCIDRs ? { trustProxyCIDRs } : {}),
+    ...(allowInsecureTrustedProxy === undefined ? {} : { allowInsecureTrustedProxy }),
     ...(enableRuntimeProxy === undefined ? {} : { enableRuntimeProxy })
   };
 }

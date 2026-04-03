@@ -64,6 +64,7 @@ export interface GatewayConfigSection {
     key: string;
   };
   trustProxyCIDRs?: string[];
+  allowInsecureTrustedProxy?: boolean;
   backfillEventCount?: number;
   wsAuthTimeoutMs?: number;
   tokenSweepIntervalMs?: number;
@@ -346,6 +347,9 @@ function toGatewayConfig(
     ...(setupMode ? { setupMode: true } : {}),
     ...(config.tls ? { tls: config.tls } : {}),
     ...(config.trustProxyCIDRs ? { trustProxyCIDRs: [...config.trustProxyCIDRs] } : {}),
+    ...(config.allowInsecureTrustedProxy === undefined
+      ? {}
+      : { allowInsecureTrustedProxy: config.allowInsecureTrustedProxy }),
     auth: {
       apiKey: config.apiKey,
       ...(config.users ? { users: [...config.users] } : {}),

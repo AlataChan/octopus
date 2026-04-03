@@ -416,7 +416,7 @@ export class GatewayServer {
       throw new Error("Gateway requires 'vibe' or 'platform' profile.");
     }
 
-    if (this.profileName === "vibe" && !isLoopback(this.config.host)) {
+    if (this.profileName === "vibe" && !isLoopback(this.config.host) && !this.config.trustProxyCIDRs?.length) {
       this.config.host = "127.0.0.1";
     }
 

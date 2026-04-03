@@ -69,6 +69,7 @@ export interface GatewayConfig {
     key: string;
   };
   trustProxyCIDRs?: string[];
+  allowInsecureTrustedProxy?: boolean;
   auth: GatewayAuthConfig;
   backfillEventCount?: number;
   wsAuthTimeoutMs?: number;

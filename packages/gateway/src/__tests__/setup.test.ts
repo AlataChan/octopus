@@ -128,7 +128,8 @@ describe("setup routes", () => {
     const deps = createRouteDeps(workspaceRoot);
     process.env.OCTOPUS_SETUP_TOKEN = "setup-secret";
 
-    vi.stubGlobal("fetch", vi.fn(async () => createRuntimeResponse()));
+    const fetchMock = vi.fn(async () => createRuntimeResponse());
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(handleInitialize(deps, createInitializeBody())).resolves.toEqual({
       initialized: true
@@ -144,6 +145,7 @@ describe("setup routes", () => {
       initializedBy: "admin",
       schemaVersion: 1
     }));
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(await verifyPasswordHash("octopus-admin", config!.auth.users[0]!.passwordHash)).toBe(true);
     expect(await verifyPasswordHash("octopus-ops", config!.auth.users[1]!.passwordHash)).toBe(true);
     expect(process.env.OCTOPUS_SETUP_TOKEN).toBeUndefined();

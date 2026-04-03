@@ -755,6 +755,7 @@ export function createDefaultConfig(workspaceRoot: string, modelClient: ModelCli
     || Boolean(envUsers);
 
   if (hasCompleteLegacyRuntime && hasCompleteLegacyAuth) {
+    process.stderr.write("[DEPRECATION] Running with legacy environment variables. Use browser-based setup for new deployments: docker compose up, then open the frontend.\n");
     return {
       workspaceRoot,
       dataDir,

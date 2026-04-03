@@ -1026,6 +1026,7 @@ describe("createDefaultConfig", () => {
 
   it("uses legacy env mode when both auth and runtime env values are present", () => {
     const workspaceRoot = join(tmpdir(), "octopus-cli-legacy");
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     process.env.OCTOPUS_PROFILE = "vibe";
     process.env.OCTOPUS_PROVIDER = "openai-compatible";
     process.env.OCTOPUS_MODEL = "legacy-model";
@@ -1040,6 +1041,10 @@ describe("createDefaultConfig", () => {
     expect(config.runtime.apiKey).toBe("legacy-key");
     expect(config.runtime.allowModelApiCall).toBe(true);
     expect(config.gateway?.apiKey).toBe("legacy-gateway");
+    expect(stderr).toHaveBeenCalledWith(
+      "[DEPRECATION] Running with legacy environment variables. Use browser-based setup for new deployments: docker compose up, then open the frontend.\n"
+    );
+    stderr.mockRestore();
   });
 
   it("enters setup mode when persistent config is missing and legacy env is incomplete", async () => {

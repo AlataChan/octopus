@@ -52,7 +52,8 @@ export function SetupWizard({
   });
   const [admin, setAdmin] = useState({
     username: "",
-    password: ""
+    password: "",
+    confirmPassword: ""
   });
   const [additionalUsers, setAdditionalUsers] = useState<SetupAdditionalUserInput[]>([]);
   const [userDraft, setUserDraft] = useState<SetupAdditionalUserInput>({
@@ -68,6 +69,7 @@ export function SetupWizard({
     username: admin.username.trim(),
     password: admin.password
   };
+  const adminPasswordMismatch = admin.confirmPassword.length > 0 && admin.password !== admin.confirmPassword;
   const canAdvanceToken = workspaceWritable && normalizedSetupToken.length > 0 && !submitting;
   const canAdvanceRuntime = workspaceWritable
     && normalizedRuntime.model.length > 0
@@ -76,6 +78,8 @@ export function SetupWizard({
   const canAdvanceAdmin = workspaceWritable
     && normalizedAdmin.username.length > 0
     && normalizedAdmin.password.length > 0
+    && admin.confirmPassword.length > 0
+    && !adminPasswordMismatch
     && !submitting;
   const canAddUser = workspaceWritable
     && userDraft.username.trim().length > 0
@@ -140,7 +144,11 @@ export function SetupWizard({
     }
 
     setError(null);
-    setAdmin(normalizedAdmin);
+    setAdmin((current) => ({
+      ...current,
+      username: normalizedAdmin.username,
+      password: normalizedAdmin.password
+    }));
     setStep("users");
   };
 
@@ -338,7 +346,21 @@ export function SetupWizard({
                 placeholder="••••••••"
               />
             </label>
+            <label class="field">
+              <span>{t("setup.admin.confirmPassword")}</span>
+              <input
+                type="password"
+                value={admin.confirmPassword}
+                autoComplete="new-password"
+                onInput={(event) => setAdmin((current) => ({
+                  ...current,
+                  confirmPassword: (event.currentTarget as HTMLInputElement).value
+                }))}
+                placeholder="••••••••"
+              />
+            </label>
           </div>
+          {adminPasswordMismatch ? <p class="error-text">{t("setup.admin.passwordMismatch")}</p> : null}
           <div class="setup-actions">
             <button type="button" class="button-ghost" onClick={goBack}>
               {t("setup.button.back")}

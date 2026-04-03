@@ -109,11 +109,6 @@ export async function handleInitialize(
   INITIALIZE_LOCKS.add(configDir);
 
   try {
-    const runtimeCheck = await handleValidateRuntime(deps, payload.runtime);
-    if (!runtimeCheck.valid) {
-      throw new HttpError(400, runtimeCheck.error ?? "Runtime validation failed.");
-    }
-
     const users = [
       {
         username: payload.admin.username.trim(),

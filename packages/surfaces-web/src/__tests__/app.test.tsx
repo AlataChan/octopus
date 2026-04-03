@@ -246,6 +246,9 @@ describe("App dashboard shell", () => {
     fireEvent.input(screen.getByLabelText("管理员密码"), {
       target: { value: "super-secret" }
     });
+    fireEvent.input(screen.getByLabelText("确认密码"), {
+      target: { value: "super-secret" }
+    });
     fireEvent.click(screen.getByRole("button", { name: "下一步" }));
 
     fireEvent.input(await screen.findByLabelText("附加账号用户名"), {
@@ -294,6 +297,44 @@ describe("App dashboard shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "前往登录" }));
 
     expect(await screen.findByLabelText("用户名")).toBeInTheDocument();
+  }, 30_000);
+
+  it("blocks the admin step until password confirmation matches", async () => {
+    authState.authenticated = false;
+    getSetupStatus.mockResolvedValue({
+      initialized: false,
+      workspaceWritable: true
+    });
+
+    render(<App />);
+
+    fireEvent.input(await screen.findByLabelText("设置令牌"), {
+      target: { value: "setup-token-1" }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "验证令牌" }).closest("form") as HTMLFormElement);
+
+    fireEvent.input(await screen.findByLabelText("模型 ID"), {
+      target: { value: "gpt-4.1-mini" }
+    });
+    fireEvent.input(screen.getByLabelText("模型 API Key"), {
+      target: { value: "sk-test" }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "验证运行时" }).closest("form") as HTMLFormElement);
+
+    expect(await screen.findByRole("heading", { name: "创建管理员账号" })).toBeInTheDocument();
+
+    fireEvent.input(screen.getByLabelText("管理员用户名"), {
+      target: { value: "ops-admin" }
+    });
+    fireEvent.input(screen.getByLabelText("管理员密码"), {
+      target: { value: "super-secret" }
+    });
+    fireEvent.input(screen.getByLabelText("确认密码"), {
+      target: { value: "different-secret" }
+    });
+
+    expect(screen.getByText("两次输入的密码不一致。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
   }, 30_000);
 
   it("defaults to Chinese and allows switching to English", async () => {

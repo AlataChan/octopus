@@ -4,7 +4,12 @@ import type { WorkEvent } from "@octopus/observability";
 import type { SnapshotSummary } from "@octopus/state-store";
 import type { Artifact, SessionSummary, WorkSession } from "@octopus/work-contracts";
 
-import { GatewayClient, type ApprovalRequest, type StatusResponse } from "./api/client.js";
+import {
+  GatewayClient,
+  UnauthorizedError,
+  type ApprovalRequest,
+  type StatusResponse
+} from "./api/client.js";
 import type { AuthSession } from "./api/auth.js";
 import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal.js";
 import { ConnectionStatus } from "./components/ConnectionStatus.js";
@@ -80,6 +85,32 @@ function AppView() {
   const canControlSessions = authSession?.role !== "viewer";
   const canApproveSessions = authSession?.role !== "viewer";
 
+  const resetToLogin = () => {
+    client.clearAuthSession();
+    setAuthSession(null);
+    setAuthenticated(false);
+    setSessions([]);
+    setSelectedSessionId(null);
+    setSelectedSession(null);
+    setSnapshots([]);
+    setEvents([]);
+    setApproval(null);
+    setStatus(null);
+    setConnectionState("disconnected");
+    setPageError(null);
+    setShowComposer(false);
+    setArtifactPreview(null);
+  };
+
+  const handleClientError = (error: unknown, fallbackMessage: string) => {
+    if (error instanceof UnauthorizedError) {
+      resetToLogin();
+      return;
+    }
+
+    setPageError(error instanceof Error ? localizeError(error.message) : fallbackMessage);
+  };
+
   const refreshSessions = async () => {
     const nextSessions = await client.listSessions();
     setSessions(nextSessions);
@@ -144,7 +175,7 @@ function AppView() {
     }
 
     void Promise.all([refreshSessions(), refreshStatus()]).catch((error) => {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.loadGatewayDataFailed"));
+      handleClientError(error, t("error.loadGatewayDataFailed"));
     });
   }, [appMode, authenticated]);
 
@@ -165,7 +196,7 @@ function AppView() {
 
     void Promise.all([refreshSelectedSession(selectedSessionId), refreshSnapshots(selectedSessionId)]).catch((error) => {
       if (active) {
-        setPageError(error instanceof Error ? localizeError(error.message) : t("error.loadSessionFailed"));
+        handleClientError(error, t("error.loadSessionFailed"));
       }
     });
 
@@ -193,8 +224,12 @@ function AppView() {
           setApproval(nextApproval);
         }
       },
-      () => {
+      (reason) => {
         if (active) {
+          if (reason === "auth.failed" || reason === "auth.timeout" || reason === "auth.expired") {
+            resetToLogin();
+            return;
+          }
           setConnectionState("disconnected");
         }
       },
@@ -234,7 +269,7 @@ function AppView() {
       setShowComposer(false);
       setArtifactPreview(null);
     } catch (error) {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.gatewayRequestFailed"));
+      handleClientError(error, t("error.gatewayRequestFailed"));
     } finally {
       setBusy(false);
     }
@@ -250,7 +285,7 @@ function AppView() {
       await client.controlSession(selectedSessionId, action);
       await Promise.all([refreshSelectedSession(selectedSessionId), refreshSessions()]);
     } catch (error) {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.sessionControlFailed"));
+      handleClientError(error, t("error.sessionControlFailed"));
     } finally {
       setBusy(false);
     }
@@ -267,7 +302,7 @@ function AppView() {
       setApproval(null);
       await refreshSelectedSession(selectedSessionId);
     } catch (error) {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.approvalFailed"));
+      handleClientError(error, t("error.approvalFailed"));
     } finally {
       setBusy(false);
     }
@@ -284,7 +319,7 @@ function AppView() {
       await refreshSelectedSession(selectedSessionId);
       setPageError(null);
     } catch (error) {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.sessionControlFailed"));
+      handleClientError(error, t("error.sessionControlFailed"));
     } finally {
       setBusy(false);
     }
@@ -300,7 +335,7 @@ function AppView() {
       setShowComposer(false);
       setPageError(null);
     } catch (error) {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.taskSubmitFailed"));
+      handleClientError(error, t("error.taskSubmitFailed"));
     } finally {
       setBusy(false);
     }
@@ -327,6 +362,11 @@ function AppView() {
         error: null
       });
     } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        resetToLogin();
+        return;
+      }
+
       setArtifactPreview({
         path: artifact.path,
         content: "",
@@ -352,7 +392,7 @@ function AppView() {
       ]);
       setPageError(null);
     } catch (error) {
-      setPageError(error instanceof Error ? localizeError(error.message) : t("error.sessionControlFailed"));
+      handleClientError(error, t("error.sessionControlFailed"));
     } finally {
       setBusy(false);
     }

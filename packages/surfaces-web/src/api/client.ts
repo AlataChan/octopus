@@ -113,6 +113,13 @@ export interface SetupInitializeResponse {
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
+export class UnauthorizedError extends Error {
+  constructor(message = "Authentication required.") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
 export class GatewayClient {
   constructor(
     private readonly baseUrl: string,
@@ -365,7 +372,7 @@ export class GatewayClient {
   private requireSession(): AuthSession {
     const session = this.authStore.getSession();
     if (!session) {
-      throw new Error("Not authenticated.");
+      throw new UnauthorizedError("Not authenticated.");
     }
     return session;
   }
@@ -391,6 +398,11 @@ export class GatewayClient {
     });
 
     if (!response.ok) {
+      if (options.auth !== false && response.status === 401) {
+        this.authStore.clear();
+        throw new UnauthorizedError(await readErrorMessage(response, "Authentication required."));
+      }
+
       throw new Error(await readErrorMessage(response, "Gateway request failed."));
     }
 

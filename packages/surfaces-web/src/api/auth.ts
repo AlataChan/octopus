@@ -34,6 +34,12 @@ export class SessionStorageAuthStore implements AuthStore {
         && typeof parsed.username === "string"
         && (parsed.role === "viewer" || parsed.role === "operator" || parsed.role === "admin")
       ) {
+        const expiresAt = Date.parse(parsed.expiresAt);
+        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+          window.sessionStorage.removeItem(sessionStorageKey);
+          return null;
+        }
+
         return {
           token: parsed.token,
           expiresAt: parsed.expiresAt,

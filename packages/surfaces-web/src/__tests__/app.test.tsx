@@ -18,6 +18,7 @@ const {
   login,
   logout,
   rollbackSession,
+  UnauthorizedError,
   authState
 } = vi.hoisted(() => ({
   listSessions: vi.fn(),
@@ -44,6 +45,12 @@ const {
     authState.authenticated = false;
   }),
   rollbackSession: vi.fn(),
+  UnauthorizedError: class UnauthorizedError extends Error {
+    constructor(message = "Authentication required.") {
+      super(message);
+      this.name = "UnauthorizedError";
+    }
+  },
   authState: {
     authenticated: true
   }
@@ -97,7 +104,7 @@ vi.mock("../api/client.js", () => {
     async approvePrompt() {}
   }
 
-  return { GatewayClient: FakeGatewayClient };
+  return { GatewayClient: FakeGatewayClient, UnauthorizedError };
 });
 
 import { App } from "../App.js";
@@ -381,6 +388,15 @@ describe("App dashboard shell", () => {
     await waitFor(() => {
       expect(listSessions).toHaveBeenCalled();
     });
+  }, 30_000);
+
+  it("returns to the login form when the stored browser session is no longer authorized", async () => {
+    listSessions.mockRejectedValueOnce(new UnauthorizedError("Authentication required."));
+
+    render(<App />);
+
+    expect(await screen.findByLabelText("用户名")).toBeInTheDocument();
+    expect(authState.authenticated).toBe(false);
   }, 30_000);
 
   it("shows task guidance and submits a new task from the browser", async () => {

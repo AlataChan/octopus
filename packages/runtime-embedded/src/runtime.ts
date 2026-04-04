@@ -152,24 +152,46 @@ export class EmbeddedRuntime implements AgentRuntime {
       throw new Error(`Unknown session: ${sessionId}`);
     }
 
-    try {
-      const turn = await this.modelClient.completeTurn({
-        session,
-        context: this.contexts.get(sessionId),
-        results: this.results.get(sessionId) ?? [],
-        config: this.config
-      });
+    const maxAttempts = 3;
+    let lastRetryableError: ModelTurnError | undefined;
 
-      this.emitModelCall(sessionId, session.goalId, turn.telemetry);
-      return turn.response;
-    } catch (error) {
-      const turnError = toModelTurnError(error, this.config);
-      this.emitModelCall(sessionId, session.goalId, turnError.telemetry);
-      return {
-        kind: "blocked",
-        reason: turnError.message
-      };
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const turn = await this.modelClient.completeTurn({
+          session,
+          context: this.contexts.get(sessionId),
+          results: this.results.get(sessionId) ?? [],
+          config: this.config
+        });
+
+        this.emitModelCall(sessionId, session.goalId, turn.telemetry);
+        return turn.response;
+      } catch (error) {
+        const turnError = toModelTurnError(error, this.config);
+        this.emitModelCall(sessionId, session.goalId, turnError.telemetry);
+
+        const status = turnError.telemetry.statusCode;
+        const retryable = status === 429 || (status !== undefined && status >= 500);
+        if (!retryable) {
+          return {
+            kind: "blocked",
+            reason: turnError.message
+          };
+        }
+
+        lastRetryableError = turnError;
+        if (attempt === maxAttempts - 1) {
+          break;
+        }
+
+        await wait(1000 * Math.pow(2, attempt));
+      }
     }
+
+    return {
+      kind: "blocked",
+      reason: `[retry-exhausted] ${lastRetryableError?.message ?? "Model request failed after retries."}`
+    };
   }
 
   async ingestToolResult(sessionId: string, _actionId: string, result: ActionResult): Promise<void> {
@@ -217,5 +239,11 @@ function toModelTurnError(error: unknown, config: EmbeddedRuntimeConfig): ModelT
     durationMs: 0,
     success: false,
     error: message
+  });
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }

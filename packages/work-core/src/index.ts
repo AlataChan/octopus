@@ -1,5 +1,6 @@
 export * from "./engine.js";
 export * from "./errors.js";
+export * from "./turn-context.js";
 export * from "./artifacts/templates.js";
 export * from "./verification/diff-check.js";
 export * from "./verification/output-compare.js";

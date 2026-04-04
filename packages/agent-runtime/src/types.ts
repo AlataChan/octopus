@@ -40,11 +40,17 @@ export interface CompletionCandidate {
   artifactRefs?: string[];
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd?: number;
+}
+
 export type RuntimeResponse =
-  | { kind: "action"; action: Action }
-  | { kind: "completion"; evidence: string }
-  | { kind: "blocked"; reason: string }
-  | { kind: "clarification"; question: string };
+  | { kind: "action"; action: Action; usage?: TokenUsage }
+  | { kind: "completion"; evidence: string; usage?: TokenUsage }
+  | { kind: "blocked"; reason: string; usage?: TokenUsage }
+  | { kind: "clarification"; question: string; usage?: TokenUsage };
 
 export type ResumeInput =
   | { kind: "clarification"; answer: string }

@@ -42,9 +42,15 @@ export class HttpModelClient implements ModelClient {
     const text = extractResponseText(body);
     try {
       const parsed = parseRuntimeResponse(text);
+      const usage = telemetry.inputTokens !== undefined && telemetry.outputTokens !== undefined
+        ? {
+            inputTokens: telemetry.inputTokens,
+            outputTokens: telemetry.outputTokens
+          }
+        : undefined;
 
       return {
-        response: parsed,
+        response: usage ? { ...parsed, usage } : parsed,
         telemetry
       };
     } catch (error) {

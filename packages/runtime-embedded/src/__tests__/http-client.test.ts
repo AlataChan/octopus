@@ -48,9 +48,60 @@ describe("HttpModelClient", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect((response.response as RuntimeResponse).kind).toBe("completion");
+    expect((response.response as RuntimeResponse & { usage?: { inputTokens: number; outputTokens: number } }).usage)
+      .toEqual({ inputTokens: 20, outputTokens: 10 });
     expect(response.telemetry.requestId).toBe("req-1");
     expect(response.telemetry.inputTokens).toBe(20);
     expect(response.telemetry.outputTokens).toBe(10);
+  });
+
+  it("attaches usage to blocked responses too", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "{\"kind\":\"blocked\",\"reason\":\"provider unavailable\"}"
+              }
+            }
+          ],
+          usage: {
+            prompt_tokens: 33,
+            completion_tokens: 7
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json"
+          }
+        }
+      )
+    );
+
+    const client = new HttpModelClient(fetchMock as unknown as typeof fetch);
+    const response = await client.completeTurn({
+      session: createWorkSession(createWorkGoal({ description: "Read docs" })),
+      results: [],
+      config: {
+        provider: "openai-compatible",
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      }
+    });
+
+    expect(response.response).toMatchObject({
+      kind: "blocked",
+      reason: "provider unavailable",
+      usage: {
+        inputTokens: 33,
+        outputTokens: 7
+      }
+    });
   });
 
   it("surfaces provider error details when the API responds with a failure status", async () => {

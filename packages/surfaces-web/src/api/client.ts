@@ -63,6 +63,12 @@ export interface LoginResponse {
   username: string;
 }
 
+export interface AuthStatusResponse {
+  authenticated: boolean;
+  role?: AuthRole;
+  username?: string;
+}
+
 export interface RollbackResponse {
   sessionId: string;
   state: string;
@@ -185,6 +191,22 @@ export class GatewayClient {
 
   getAuthSession(): AuthSession | null {
     return this.authStore.getSession();
+  }
+
+  async getAuthStatus(): Promise<AuthStatusResponse> {
+    const session = this.authStore.getSession();
+    if (!session) {
+      return {
+        authenticated: false
+      };
+    }
+
+    return this.requestJsonWithOptions<AuthStatusResponse>("GET", "/auth/session", {
+      auth: false,
+      headers: {
+        Authorization: `Bearer ${session.token}`
+      }
+    });
   }
 
   async getSetupStatus(): Promise<SetupStatusResponse> {

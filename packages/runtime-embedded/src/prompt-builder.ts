@@ -19,6 +19,12 @@ export function buildTurnPrompt(input: {
     'or {"kind":"blocked","reason":"string"}',
     'or {"kind":"clarification","question":"string"}',
     "",
+    "Action params requirements:",
+    'read => {"path":"relative/path","encoding":"utf8?"}',
+    'patch => {"path":"relative/path","content":"full file content"}',
+    'search => {"query":"literal text"}',
+    'shell => {"executable":"command","args":["..."],"timeoutMs":30000?}',
+    "",
     "Use completion only when the goal is truly done, durable artifacts and status are updated, and no further tool action is needed.",
     "If the goal implies inspection, editing, verification, or artifact output work and you have not used a tool yet, take at least one tool action before considering completion.",
     "Use clarification when you need a specific answer from the operator to continue.",
@@ -36,6 +42,7 @@ export function buildTurnPrompt(input: {
   ];
 
   if (mcpTools?.length) {
+    lines.push("", 'mcp-call => {"serverId":"server","toolName":"tool","arguments":{}}');
     lines.push("", 'Available MCP tools (use type: "mcp-call" with params: {serverId, toolName, arguments}):');
     for (const tool of mcpTools) {
       lines.push(`  - ${tool.serverId}/${tool.name}: ${tool.description ?? "no description"}`);

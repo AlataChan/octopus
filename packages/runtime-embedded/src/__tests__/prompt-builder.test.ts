@@ -45,4 +45,21 @@ describe("buildTurnPrompt", () => {
     expect(prompt).toContain("Use clarification when you need a specific answer from the operator");
     expect(prompt).toContain('Use blocked only for unrecoverable failures');
   });
+
+  it("documents the required params for each built-in action type", () => {
+    const session = createWorkSession(createWorkGoal({ description: "Inspect repo" }));
+
+    const prompt = buildTurnPrompt({
+      session,
+      context: {
+        workspaceSummary: "repo root"
+      },
+      results: []
+    });
+
+    expect(prompt).toContain('read => {"path":"relative/path","encoding":"utf8?"}');
+    expect(prompt).toContain('patch => {"path":"relative/path","content":"full file content"}');
+    expect(prompt).toContain('search => {"query":"literal text"}');
+    expect(prompt).toContain('shell => {"executable":"command","args":["..."],"timeoutMs":30000?}');
+  });
 });

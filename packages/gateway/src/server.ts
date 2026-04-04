@@ -17,7 +17,7 @@ import { validateOrigin } from "./middleware/origin-guard.js";
 import { isLoopback, isSecureConnection } from "./middleware/tls-guard.js";
 import { handleApproval } from "./routes/approval.js";
 import { handleGetArtifactContent } from "./routes/artifacts.js";
-import { handleLogin, handleLogout, handleMintToken } from "./routes/auth-routes.js";
+import { handleLogin, handleLogout, handleMintToken, handleSessionStatus } from "./routes/auth-routes.js";
 import { handleClarification } from "./routes/clarification.js";
 import { handleControl } from "./routes/control.js";
 import { handleSubmitGoal } from "./routes/goals.js";
@@ -203,6 +203,19 @@ export class GatewayServer {
 
       if (method === "POST" && url.pathname === "/auth/login") {
         writeJson(res, 200, await handleLogin(deps, await readJsonBody(req)));
+        return;
+      }
+
+      if (method === "GET" && url.pathname === "/auth/session") {
+        const credentials = extractCredentials(req);
+        writeJson(
+          res,
+          200,
+          await handleSessionStatus(
+            deps,
+            credentials?.type === "bearer" ? credentials.token : undefined
+          )
+        );
         return;
       }
 

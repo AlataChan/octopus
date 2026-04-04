@@ -55,9 +55,12 @@ function normalizeAction(value: unknown): Action {
     throw new Error("action.params must be an object.");
   }
 
+  const type = readActionType(value.type);
+  validateActionParams(type, params);
+
   return {
     id: readString(value.id, "action.id"),
-    type: readActionType(value.type),
+    type,
     params,
     createdAt: createdAtValue
   };
@@ -80,6 +83,73 @@ function readString(value: unknown, label: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateActionParams(type: ActionType, params: Record<string, unknown>): void {
+  switch (type) {
+    case "read":
+      readStringParam(params, "path", "action.params.path");
+      readOptionalStringParam(params, "encoding", "action.params.encoding");
+      return;
+    case "patch":
+      readStringParam(params, "path", "action.params.path");
+      readStringParam(params, "content", "action.params.content");
+      return;
+    case "search":
+      readStringParam(params, "query", "action.params.query");
+      return;
+    case "shell":
+      readStringParam(params, "executable", "action.params.executable");
+      readOptionalStringArrayParam(params, "args", "action.params.args");
+      readOptionalNumberParam(params, "timeoutMs", "action.params.timeoutMs");
+      return;
+    case "mcp-call":
+      readStringParam(params, "serverId", "action.params.serverId");
+      readStringParam(params, "toolName", "action.params.toolName");
+      readObjectParam(params, "arguments", "action.params.arguments");
+      return;
+    case "model-call":
+      return;
+  }
+}
+
+function readStringParam(params: Record<string, unknown>, key: string, label: string): string {
+  return readString(params[key], label);
+}
+
+function readOptionalStringParam(params: Record<string, unknown>, key: string, label: string): void {
+  const value = params[key];
+  if (value === undefined) {
+    return;
+  }
+  readString(value, label);
+}
+
+function readOptionalStringArrayParam(params: Record<string, unknown>, key: string, label: string): void {
+  const value = params[key];
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(`${label} must be a string array.`);
+  }
+}
+
+function readOptionalNumberParam(params: Record<string, unknown>, key: string, label: string): void {
+  const value = params[key];
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number.`);
+  }
+}
+
+function readObjectParam(params: Record<string, unknown>, key: string, label: string): void {
+  const value = params[key];
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
 }
 
 const ACTION_TYPES = new Set<ActionType>(["read", "patch", "shell", "search", "model-call", "mcp-call"]);

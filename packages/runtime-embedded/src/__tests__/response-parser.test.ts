@@ -50,4 +50,20 @@ describe("parseRuntimeResponse", () => {
     }
     expect(response.action.type).toBe("mcp-call");
   });
+
+  it("rejects shell actions that omit the executable string", () => {
+    expect(() =>
+      parseRuntimeResponse(
+        '{"kind":"action","action":{"id":"action-1","type":"shell","params":{"args":["status"]},"createdAt":"2026-03-16T00:00:00.000Z"}}'
+      )
+    ).toThrow(/action\.params\.executable/i);
+  });
+
+  it("rejects read actions that omit the path string", () => {
+    expect(() =>
+      parseRuntimeResponse(
+        '{"kind":"action","action":{"id":"action-1","type":"read","params":{"encoding":"utf8"},"createdAt":"2026-03-16T00:00:00.000Z"}}'
+      )
+    ).toThrow(/action\.params\.path/i);
+  });
 });

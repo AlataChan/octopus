@@ -66,6 +66,27 @@ export async function handleLogin(deps: RouteDeps, body?: unknown) {
   };
 }
 
+export async function handleSessionStatus(deps: RouteDeps, token: string | undefined) {
+  if (!token) {
+    return {
+      authenticated: false as const
+    };
+  }
+
+  const operator = deps.tokenStore.validateToken(token);
+  if (!operator || operator.authMethod !== "session-token") {
+    return {
+      authenticated: false as const
+    };
+  }
+
+  return {
+    authenticated: true as const,
+    role: operator.role,
+    username: operator.operatorId
+  };
+}
+
 export async function handleLogout(
   deps: RouteDeps,
   operator: OperatorContext,

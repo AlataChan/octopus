@@ -425,6 +425,31 @@ describe("WorkEngine", () => {
     expect(session.state).toBe("blocked");
     expect(categories).toEqual(["network"]);
   });
+
+  it("submits a goal without waiting for the runtime loop to finish", async () => {
+    const goal = createWorkGoal({ description: "Run in background" });
+    const runtime = new HangingRuntime();
+    const store = new MemoryStateStore();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      store,
+      new EventBus(),
+      allowAllPolicy()
+    );
+
+    const session = await Promise.race([
+      engine.submitGoal(goal),
+      new Promise<WorkSession>((_, reject) => {
+        setTimeout(() => reject(new Error("submitGoal should not wait for requestNextAction")), 50);
+      })
+    ]);
+
+    expect(session.state).toBe("active");
+    expect(runtime.requestNextActionCalls).toBe(1);
+    expect(store.sessions).toHaveLength(1);
+    expect(store.sessions[0]?.id).toBe(session.id);
+  });
 });
 
 class FakeRuntime implements AgentRuntime {
@@ -500,6 +525,19 @@ class FakeRuntime implements AgentRuntime {
         pendingResults: []
       }
     };
+  }
+}
+
+class HangingRuntime extends FakeRuntime {
+  requestNextActionCalls = 0;
+
+  constructor() {
+    super([]);
+  }
+
+  override async requestNextAction(): Promise<RuntimeResponse> {
+    this.requestNextActionCalls += 1;
+    return new Promise<RuntimeResponse>(() => {});
   }
 }
 

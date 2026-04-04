@@ -65,32 +65,14 @@ export class WorkEngine {
   }
 
   async executeGoal(goal: WorkGoal, options: ExecuteGoalOptions = {}): Promise<WorkSession> {
-    const session = options.resumeFrom
-      ? await this.restoreSession(options.resumeFrom, goal)
-      : await this.startSession(goal, options);
+    const prepared = await this.prepareSessionExecution(goal, options);
+    return this.runPreparedSession(goal, prepared.session, options, prepared.trace);
+  }
 
-    const trace = this.captureTrace(session.id);
-    let workspaceLockAcquired = false;
-
-    try {
-      if (options.workspaceRoot) {
-        await this.acquireWorkspaceLock(session, options.workspaceRoot);
-        workspaceLockAcquired = true;
-      }
-
-      return await this.runLoop(goal, session, options, trace.events);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Work engine failed.";
-      transitionSession(session, "failed", message);
-      await this.stateStore.saveSession(session);
-      this.emit(session, "session.failed", "work-core", { error: message });
-      return session;
-    } finally {
-      if (workspaceLockAcquired && options.workspaceRoot) {
-        await this.releaseWorkspaceLock(session, options.workspaceRoot, mapSessionStateToReleaseReason(session.state));
-      }
-      trace.stop();
-    }
+  async submitGoal(goal: WorkGoal, options: ExecuteGoalOptions = {}): Promise<WorkSession> {
+    const prepared = await this.prepareSessionExecution(goal, options);
+    void this.runPreparedSession(goal, prepared.session, options, prepared.trace);
+    return prepared.session;
   }
 
   async pauseSession(sessionId: string): Promise<WorkSession> {
@@ -179,6 +161,20 @@ export class WorkEngine {
     return session;
   }
 
+  private async prepareSessionExecution(
+    goal: WorkGoal,
+    options: ExecuteGoalOptions
+  ): Promise<{ session: WorkSession; trace: ReturnType<WorkEngine["captureTrace"]> }> {
+    const session = options.resumeFrom
+      ? await this.restoreSession(options.resumeFrom, goal)
+      : await this.startSession(goal, options);
+
+    return {
+      session,
+      trace: this.captureTrace(session.id)
+    };
+  }
+
   private async restoreSession(
     resumeFrom: NonNullable<ExecuteGoalOptions["resumeFrom"]>,
     goal: WorkGoal
@@ -244,6 +240,35 @@ export class WorkEngine {
     return this.blockSession(session, goal, "Maximum iterations reached.", options.workspaceRoot, {
       reason: "Maximum iterations reached."
     });
+  }
+
+  private async runPreparedSession(
+    goal: WorkGoal,
+    session: WorkSession,
+    options: ExecuteGoalOptions,
+    trace: ReturnType<WorkEngine["captureTrace"]>
+  ): Promise<WorkSession> {
+    let workspaceLockAcquired = false;
+
+    try {
+      if (options.workspaceRoot) {
+        await this.acquireWorkspaceLock(session, options.workspaceRoot);
+        workspaceLockAcquired = true;
+      }
+
+      return await this.runLoop(goal, session, options, trace.events);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Work engine failed.";
+      transitionSession(session, "failed", message);
+      await this.stateStore.saveSession(session);
+      this.emit(session, "session.failed", "work-core", { error: message });
+      return session;
+    } finally {
+      if (workspaceLockAcquired && options.workspaceRoot) {
+        await this.releaseWorkspaceLock(session, options.workspaceRoot, mapSessionStateToReleaseReason(session.state));
+      }
+      trace.stop();
+    }
   }
 
   private async executeAction(

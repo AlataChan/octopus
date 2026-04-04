@@ -156,8 +156,24 @@ function AppView() {
       }
 
       const nextSession = client.getAuthSession();
+      if (!nextSession) {
+        setAuthSession(null);
+        setAuthenticated(false);
+        setAppMode("ready");
+        return;
+      }
+
+      const authStatus = await client.getAuthStatus();
+      if (!authStatus.authenticated) {
+        client.clearAuthSession();
+        setAuthSession(null);
+        setAuthenticated(false);
+        setAppMode("ready");
+        return;
+      }
+
       setAuthSession(nextSession);
-      setAuthenticated(Boolean(nextSession));
+      setAuthenticated(true);
       setAppMode("ready");
     } catch (error) {
       setBootError(error instanceof Error ? error.message : t("error.gatewayRequestFailed"));

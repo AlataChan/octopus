@@ -8,6 +8,7 @@ const {
   getSession,
   listSnapshots,
   getStatus,
+  getAuthStatus,
   getSetupStatus,
   validateSetupToken,
   validateRuntime,
@@ -25,6 +26,7 @@ const {
   getSession: vi.fn(),
   listSnapshots: vi.fn(),
   getStatus: vi.fn(),
+  getAuthStatus: vi.fn(),
   getSetupStatus: vi.fn(),
   validateSetupToken: vi.fn(),
   validateRuntime: vi.fn(),
@@ -90,6 +92,7 @@ vi.mock("../api/client.js", () => {
     getSession = getSession;
     listSnapshots = listSnapshots;
     getStatus = getStatus;
+    getAuthStatus = getAuthStatus;
     getSetupStatus = getSetupStatus;
     validateSetupToken = validateSetupToken;
     validateRuntime = validateRuntime;
@@ -117,6 +120,7 @@ describe("App dashboard shell", () => {
     listSessions.mockReset();
     getSession.mockReset();
     getStatus.mockReset();
+    getAuthStatus.mockReset();
     getSetupStatus.mockReset();
     validateSetupToken.mockReset();
     validateRuntime.mockReset();
@@ -136,6 +140,11 @@ describe("App dashboard shell", () => {
     getSetupStatus.mockResolvedValue({
       initialized: true,
       workspaceWritable: true
+    });
+    getAuthStatus.mockResolvedValue({
+      authenticated: true,
+      role: "operator",
+      username: "ops1"
     });
     validateSetupToken.mockResolvedValue({ valid: true });
     validateRuntime.mockResolvedValue({
@@ -391,12 +400,15 @@ describe("App dashboard shell", () => {
   }, 30_000);
 
   it("returns to the login form when the stored browser session is no longer authorized", async () => {
-    listSessions.mockRejectedValueOnce(new UnauthorizedError("Authentication required."));
+    getAuthStatus.mockResolvedValueOnce({
+      authenticated: false
+    });
 
     render(<App />);
 
     expect(await screen.findByLabelText("用户名")).toBeInTheDocument();
     expect(authState.authenticated).toBe(false);
+    expect(listSessions).not.toHaveBeenCalled();
   }, 30_000);
 
   it("shows task guidance and submits a new task from the browser", async () => {

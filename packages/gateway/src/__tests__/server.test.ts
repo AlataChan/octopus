@@ -236,6 +236,62 @@ describe("GatewayServer", () => {
     expect(afterLogout.statusCode).toBe(401);
   });
 
+  it("reports browser session state without returning 401 for stale tokens", async () => {
+    const passwordHash = await createPasswordHash("octopus-ops");
+    const server = createGatewayServer({
+      auth: {
+        apiKey: "secret",
+        defaultPermissions: [
+          "sessions.list",
+          "sessions.read",
+          "sessions.control",
+          "sessions.approve",
+          "goals.submit",
+          "config.read"
+        ],
+        users: [
+          {
+            username: "ops1",
+            passwordHash,
+            role: "operator"
+          }
+        ]
+      }
+    });
+
+    const login = await dispatch(
+      server,
+      "POST",
+      "/auth/login",
+      {
+        username: "ops1",
+        password: "octopus-ops"
+      },
+      {
+        "content-type": "application/json"
+      }
+    );
+    const token = (login.body as { token: string }).token;
+
+    const stale = await dispatch(server, "GET", "/auth/session", undefined, {
+      authorization: "Bearer stale-token"
+    });
+    const active = await dispatch(server, "GET", "/auth/session", undefined, {
+      authorization: `Bearer ${token}`
+    });
+
+    expect(stale.statusCode).toBe(200);
+    expect(stale.body).toEqual({
+      authenticated: false
+    });
+    expect(active.statusCode).toBe(200);
+    expect(active.body).toEqual({
+      authenticated: true,
+      role: "operator",
+      username: "ops1"
+    });
+  });
+
   it("preserves password whitespace while still trimming usernames on browser login", async () => {
     const passwordHash = await createPasswordHash(" octopus-ops ");
     const server = createGatewayServer({
@@ -407,7 +463,7 @@ describe("GatewayServer", () => {
   });
 
   it("submits goals with release metadata and workspaceRoot from config", async () => {
-    const { server, executeGoalCalls } = createGatewayServerHarness({
+    const { server, submitGoalCalls } = createGatewayServerHarness({
       workspaceRoot: "/workspace"
     });
     const response = await dispatch(
@@ -426,9 +482,9 @@ describe("GatewayServer", () => {
     );
 
     expect(response.statusCode).toBe(200);
-    expect(executeGoalCalls).toHaveLength(1);
-    expect(executeGoalCalls[0]?.goal.namedGoalId).toBe("readme-summary");
-    expect(executeGoalCalls[0]?.options).toEqual({
+    expect(submitGoalCalls).toHaveLength(1);
+    expect(submitGoalCalls[0]?.goal.namedGoalId).toBe("readme-summary");
+    expect(submitGoalCalls[0]?.options).toEqual({
       workspaceRoot: "/workspace",
       workspaceId: "default",
       configProfileId: "default",
@@ -1042,6 +1098,7 @@ function createGatewayServerHarness(
   policy: SecurityPolicy;
   policyResolution: PolicyResolution;
   executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }>;
+  submitGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }>;
   resumeBlockedSessionCalls: Array<{ sessionId: string; input: unknown }>;
 } {
   const session = createWorkSession(createWorkGoal({ id: "goal-1", description: "Demo" }), {
@@ -1052,8 +1109,15 @@ function createGatewayServerHarness(
   const store = new MemoryStore([session]);
   const eventBus = new EventBus();
   const executeGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }> = [];
+  const submitGoalCalls: Array<{ goal: WorkGoal; options?: Record<string, unknown> }> = [];
   const resumeBlockedSessionCalls: Array<{ sessionId: string; input: unknown }> = [];
   const engine = {
+    async submitGoal(goal: WorkGoal, options?: Record<string, unknown>): Promise<WorkSession> {
+      submitGoalCalls.push({ goal, options });
+      const created = createWorkSession(goal, { id: "generated-session" });
+      created.state = "active";
+      return created;
+    },
     async executeGoal(goal: WorkGoal, options?: Record<string, unknown>): Promise<WorkSession> {
       executeGoalCalls.push({ goal, options });
       return createWorkSession(goal, { id: "generated-session" });
@@ -1167,6 +1231,7 @@ function createGatewayServerHarness(
     policy,
     policyResolution,
     executeGoalCalls,
+    submitGoalCalls,
     resumeBlockedSessionCalls
   };
 }

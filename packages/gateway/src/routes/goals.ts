@@ -37,7 +37,7 @@ export async function handleSubmitGoal(
   const taskTitle = typeof body.taskTitle === "string" && body.taskTitle.trim().length > 0
     ? body.taskTitle.trim()
     : undefined;
-  const session = await deps.engine.executeGoal(goal, {
+  const session = await deps.engine.submitGoal(goal, {
     workspaceRoot: deps.workspaceRoot,
     workspaceId: "default",
     configProfileId: "default",

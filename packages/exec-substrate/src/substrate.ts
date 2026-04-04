@@ -142,8 +142,14 @@ async function executeShell(action: Action, context: SubstrateContext): Promise<
     child.kill("SIGTERM");
   }, timeoutMs);
 
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout.push(chunk);
+    context.onProgress?.("stdout", chunk.toString("utf8"));
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr.push(chunk);
+    context.onProgress?.("stderr", chunk.toString("utf8"));
+  });
 
   const exitCode = await new Promise<number>((resolve, reject) => {
     child.on("error", reject);
@@ -173,7 +179,8 @@ async function executeShell(action: Action, context: SubstrateContext): Promise<
   return {
     success: exitCode === 0 && !timedOut,
     output,
-    error: errorOutput || undefined
+    error: errorOutput || undefined,
+    timedOut
   };
 }
 

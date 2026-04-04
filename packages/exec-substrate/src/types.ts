@@ -6,6 +6,7 @@ export interface SubstrateContext {
   sessionId: string;
   goalId: string;
   eventBus: EventBus;
+  onProgress?: (stream: "stdout" | "stderr" | "info", chunk: string) => void;
 }
 
 export type ToolResult = ActionResult;

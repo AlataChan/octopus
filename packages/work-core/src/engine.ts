@@ -47,6 +47,8 @@ export interface WorkEngineOptions {
 
 const COMPLETION_PREDICATE_FAILED_REASON = "Completion predicate failed.";
 const PAUSED_BY_OPERATOR_REASON = "Paused by operator.";
+const PROGRESS_FLUSH_INTERVAL_MS = 200;
+const PROGRESS_CHUNK_LIMIT = 4_096;
 
 export class WorkEngine {
   private readonly verificationPlugins: VerificationPlugin[];
@@ -355,20 +357,33 @@ export class WorkEngine {
     }
 
     const startedAt = Date.now();
+    const progressReporter = createProgressReporter((stream, chunk) => {
+      this.emit(session, "action.progress", "substrate", {
+        actionId: action.id,
+        actionType: action.type,
+        stream,
+        chunk
+      });
+    });
     let result: ActionResult;
     try {
       const raw = await this.substrate.execute(action, {
         workspaceRoot: workspaceRoot ?? process.cwd(),
         sessionId: session.id,
         goalId: session.goalId,
-        eventBus: this.eventBus
+        eventBus: this.eventBus,
+        onProgress: (stream, chunk) => {
+          progressReporter.push(stream, chunk);
+        }
       });
+      progressReporter.flushAll();
       result = {
         ...raw,
         outcome: raw.timedOut ? "timed_out" : "completed",
         durationMs: Date.now() - startedAt
       };
     } catch (error) {
+      progressReporter.flushAll();
       result = {
         success: false,
         output: "",
@@ -376,6 +391,8 @@ export class WorkEngine {
         outcome: "failed",
         durationMs: Date.now() - startedAt
       };
+    } finally {
+      progressReporter.dispose();
     }
 
     item.actions.push({
@@ -790,5 +807,81 @@ function buildBlockedReason(payload: EventPayloadByType["session.blocked"]): Blo
     kind: "system-error",
     ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {}),
     ...(payload.reason ? { evidence: payload.reason } : {})
+  };
+}
+
+function createProgressReporter(
+  emit: (stream: "stdout" | "stderr" | "info", chunk: string) => void
+): {
+  push(stream: "stdout" | "stderr" | "info", chunk: string): void;
+  flushAll(): void;
+  dispose(): void;
+} {
+  const buffers: Record<"stdout" | "stderr" | "info", string> = {
+    stdout: "",
+    stderr: "",
+    info: ""
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const flushStream = (stream: "stdout" | "stderr" | "info") => {
+    while (buffers[stream].length >= PROGRESS_CHUNK_LIMIT) {
+      emit(stream, buffers[stream].slice(0, PROGRESS_CHUNK_LIMIT));
+      buffers[stream] = buffers[stream].slice(PROGRESS_CHUNK_LIMIT);
+    }
+  };
+
+  const flushResidual = (stream: "stdout" | "stderr" | "info") => {
+    if (buffers[stream].length === 0) {
+      return;
+    }
+
+    emit(stream, buffers[stream]);
+    buffers[stream] = "";
+  };
+
+  const flushAll = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    flushStream("stdout");
+    flushResidual("stdout");
+    flushStream("stderr");
+    flushResidual("stderr");
+    flushStream("info");
+    flushResidual("info");
+  };
+
+  const scheduleFlush = () => {
+    if (timer) {
+      return;
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      flushAll();
+    }, PROGRESS_FLUSH_INTERVAL_MS);
+    timer.unref?.();
+  };
+
+  return {
+    push(stream, chunk) {
+      if (chunk.length === 0) {
+        return;
+      }
+      buffers[stream] += chunk;
+      if (buffers[stream].length >= PROGRESS_CHUNK_LIMIT) {
+        flushStream(stream);
+        return;
+      }
+      scheduleFlush();
+    },
+    flushAll,
+    dispose() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    }
   };
 }

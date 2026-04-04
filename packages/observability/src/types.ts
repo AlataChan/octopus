@@ -26,6 +26,7 @@ export type CoreEventType =
   | "decision.made"
   | "action.requested"
   | "action.completed"
+  | "action.progress"
   | "verification.requested"
   | "verification.completed"
   | "artifact.emitted";
@@ -184,6 +185,14 @@ export interface ActionRequestedPayload {
 export interface ActionCompletedPayload {
   actionId: string;
   success: boolean;
+}
+
+export interface ActionProgressPayload {
+  actionId: string;
+  actionType: string;
+  stream: "stdout" | "stderr" | "info";
+  chunk: string;
+  bytesTotal?: number;
 }
 
 export interface VerificationRequestedPayload {
@@ -405,6 +414,7 @@ export interface EventPayloadByType {
   "decision.made": DecisionMadePayload;
   "action.requested": ActionRequestedPayload;
   "action.completed": ActionCompletedPayload;
+  "action.progress": ActionProgressPayload;
   "verification.requested": VerificationRequestedPayload;
   "verification.completed": VerificationCompletedPayload;
   "artifact.emitted": ArtifactEmittedPayload;

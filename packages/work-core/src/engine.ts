@@ -2,12 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { McpToolDescription, ResumeInput, RuntimeResponse } from "@octopus/agent-runtime";
+import type { McpToolDescription, ResumeInput, RuntimeResponse, TokenUsage } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
 import type { EventBus, EventPayloadByType, WorkEvent, WorkEventType } from "@octopus/observability";
 import { createShellApprovalKey, type ActionCategory, type SecurityPolicy } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
 import {
+  type BudgetLimits,
   createWorkGoal,
   isCompletable,
   type Action,
@@ -25,6 +26,7 @@ import {
 
 import { renderPlan, renderRunbook, renderStatus, renderTodo } from "./artifacts/templates.js";
 import { WorkspaceLockError } from "./errors.js";
+import { checkBudget, initTurnContext, type TurnContext } from "./turn-context.js";
 import type { VerificationContext, VerificationPlugin } from "./verification/plugin.js";
 import { FileWorkspaceLock, type ReleaseReason, type WorkspaceLock } from "./workspace-lock.js";
 
@@ -35,6 +37,7 @@ export interface ExecuteGoalOptions {
   createdBy?: string;
   taskTitle?: string;
   maxIterations?: number;
+  budget?: BudgetLimits;
   resumeFrom?: { sessionId: string; snapshotId?: string };
   partialOverrideGranted?: boolean;
 }
@@ -225,10 +228,31 @@ export class WorkEngine {
     options: ExecuteGoalOptions,
     trace: WorkEvent[]
   ): Promise<WorkSession> {
-    const maxIterations = options.maxIterations ?? 20;
+    const turn = initTurnContext({
+      maxIterations: options.maxIterations,
+      budget: options.budget,
+      usage: session.usage
+    });
 
-    for (let index = 0; index < maxIterations; index += 1) {
+    while (turn.turnIndex < turn.maxIterations) {
+      const preTurnBudgetFailure = checkBudget(turn);
+      if (preTurnBudgetFailure) {
+        return this.blockSession(session, goal, preTurnBudgetFailure.message, options.workspaceRoot, {
+          reason: preTurnBudgetFailure.message
+        });
+      }
+
       const response = await this.runtime.requestNextAction(session.id);
+      this.accumulateUsage(turn, response.usage);
+      turn.turnIndex += 1;
+      this.syncUsage(session, turn);
+
+      const postResponseBudgetFailure = checkBudget(turn);
+      if (postResponseBudgetFailure) {
+        return this.blockSession(session, goal, postResponseBudgetFailure.message, options.workspaceRoot, {
+          reason: postResponseBudgetFailure.message
+        });
+      }
 
       if (response.kind === "action") {
         const currentItem = session.items.at(-1);
@@ -256,6 +280,7 @@ export class WorkEngine {
       });
     }
 
+    this.syncUsage(session, turn);
     return this.blockSession(session, goal, "Maximum iterations reached.", options.workspaceRoot, {
       reason: "Maximum iterations reached."
     });
@@ -632,6 +657,25 @@ export class WorkEngine {
 
     this.eventBus.emit(event);
   }
+
+  private accumulateUsage(turn: TurnContext, usage?: TokenUsage): void {
+    if (usage) {
+      turn.totalInputTokens += usage.inputTokens;
+      turn.totalOutputTokens += usage.outputTokens;
+      turn.tokenBudgetUsed = turn.totalInputTokens + turn.totalOutputTokens;
+      turn.cumulativeCostUsd += usage.estimatedCostUsd ?? 0;
+    }
+  }
+
+  private syncUsage(session: WorkSession, turn: TurnContext): void {
+    session.usage = {
+      totalInputTokens: turn.totalInputTokens,
+      totalOutputTokens: turn.totalOutputTokens,
+      estimatedCostUsd: turn.cumulativeCostUsd,
+      wallClockMs: Date.now() - turn.wallClockStartMs,
+      turnCount: turn.turnIndex
+    };
+  }
 }
 
 function createDefaultWorkItem(session: WorkSession, goal: WorkGoal): WorkItem {
@@ -799,6 +843,13 @@ function buildBlockedReason(payload: EventPayloadByType["session.blocked"]): Blo
   if (payload.reason === PAUSED_BY_OPERATOR_REASON) {
     return {
       kind: "paused-by-operator",
+      evidence: payload.reason,
+      ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {})
+    };
+  }
+  if (payload.reason && /budget exceeded/i.test(payload.reason)) {
+    return {
+      kind: "budget-exceeded",
       evidence: payload.reason,
       ...(payload.riskLevel ? { riskLevel: payload.riskLevel as RiskLevel } : {})
     };

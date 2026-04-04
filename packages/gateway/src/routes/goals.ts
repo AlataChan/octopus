@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { createWorkGoal, type SessionState } from "@octopus/work-contracts";
+import { createWorkGoal, type BudgetLimits, type SessionState } from "@octopus/work-contracts";
 
 import type { OperatorContext } from "../types.js";
 import { HttpError, assertPermission, type RouteDeps } from "./shared.js";
@@ -10,6 +10,7 @@ export interface GoalSubmissionBody {
   constraints?: string[];
   namedGoalId?: string;
   taskTitle?: string;
+  budget?: BudgetLimits;
 }
 
 export interface GoalSubmissionResponse {
@@ -37,12 +38,14 @@ export async function handleSubmitGoal(
   const taskTitle = typeof body.taskTitle === "string" && body.taskTitle.trim().length > 0
     ? body.taskTitle.trim()
     : undefined;
+  const budget = isBudgetLimits(body.budget) ? body.budget : undefined;
   const session = await deps.engine.submitGoal(goal, {
     workspaceRoot: deps.workspaceRoot,
     workspaceId: "default",
     configProfileId: "default",
     createdBy: operator.operatorId,
-    ...(taskTitle ? { taskTitle } : {})
+    ...(taskTitle ? { taskTitle } : {}),
+    ...(budget ? { budget } : {})
   });
 
   deps.eventBus.emit({
@@ -64,4 +67,17 @@ export async function handleSubmitGoal(
     goalId: goal.id,
     state: session.state
   };
+}
+
+function isBudgetLimits(value: unknown): value is BudgetLimits {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const raw = value as Record<string, unknown>;
+  return (
+    (raw.maxTokens === undefined || typeof raw.maxTokens === "number")
+    && (raw.maxCostUsd === undefined || typeof raw.maxCostUsd === "number")
+    && (raw.maxWallClockMs === undefined || typeof raw.maxWallClockMs === "number")
+  );
 }

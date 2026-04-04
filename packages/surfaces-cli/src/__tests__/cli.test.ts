@@ -218,6 +218,49 @@ describe("buildCli", () => {
     stdout.mockRestore();
   });
 
+  it("forwards run budget flags into executeGoal options", async () => {
+    const configFactory = vi.fn(() => ({
+      workspaceRoot: "/workspace",
+      dataDir: "/workspace/.octopus",
+      runtime: {
+        provider: "openai-compatible" as const,
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      modelClient: {
+        async completeTurn() {
+          throw new Error("not used in this test");
+        }
+      }
+    }));
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const program = buildCli(configFactory);
+
+    await program.parseAsync([
+      "run",
+      "--max-tokens",
+      "50000",
+      "--max-cost",
+      "1.5",
+      "--max-time",
+      "60000",
+      "inspect repo"
+    ], { from: "user" });
+
+    expect(mocks.executeGoal).toHaveBeenCalledWith(expect.anything(), {
+      workspaceRoot: "/workspace",
+      budget: {
+        maxTokens: 50000,
+        maxCostUsd: 1.5,
+        maxWallClockMs: 60000
+      }
+    });
+    stdout.mockRestore();
+  });
+
   it("applies the profile flag override for run", async () => {
     const configFactory = vi.fn(() => ({
       workspaceRoot: "/workspace",

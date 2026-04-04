@@ -27,7 +27,7 @@ import { TraceReader } from "@octopus/observability";
 import { HttpModelClient, type ModelClient } from "@octopus/runtime-embedded";
 import type { SecurityProfileName } from "@octopus/security";
 import { createPasswordHash } from "@octopus/gateway";
-import { createWorkGoal } from "@octopus/work-contracts";
+import { createWorkGoal, type BudgetLimits } from "@octopus/work-contracts";
 import { EvalRunner, buildReport, listReports, loadEvalSuite, loadReport, saveReport } from "@octopus/eval-runner";
 import { loadBuiltinPacks, loadCustomPacks, resolveGoal, validateParams } from "@octopus/work-packs";
 
@@ -166,12 +166,17 @@ export function buildCli(
     .argument("<goal>")
     .option("--profile <profile>", "security profile: safe-local, vibe, or platform")
     .option("--policy-file <path>", "platform policy file (implies --profile platform)")
+    .option("--max-tokens <number>", "Maximum total tokens (input+output) per session")
+    .option("--max-cost <number>", "Maximum estimated cost in USD per session")
+    .option("--max-time <number>", "Maximum wall-clock time in milliseconds per session")
     .action(async (description: string, options: CommandOptions) => {
       const config = applyCommandOverrides(configFactory(), options);
       assertValidConfig(config);
       const app = await resolvedDependencies.createLocalWorkEngine(config);
+      const budget = readBudgetOptions(options);
       const session = await app.engine.executeGoal(createWorkGoal({ description }), {
-        workspaceRoot: config.workspaceRoot
+        workspaceRoot: config.workspaceRoot,
+        ...(budget ? { budget } : {})
       });
       await app.flushTraces();
       process.stdout.write(`${session.state}\n`);
@@ -948,6 +953,9 @@ interface StoredGatewayConfig {
 interface CommandOptions {
   profile?: string;
   policyFile?: string;
+  maxTokens?: string;
+  maxCost?: string;
+  maxTime?: string;
 }
 
 interface RestoreOptions extends CommandOptions {
@@ -1389,6 +1397,39 @@ function resolveRemoteApiKey(config: LocalAppConfig, options: RemoteCommandOptio
   }
 
   return apiKey;
+}
+
+function readBudgetOptions(options: Pick<CommandOptions, "maxTokens" | "maxCost" | "maxTime">): BudgetLimits | undefined {
+  const budget: BudgetLimits = {};
+
+  const maxTokens = readPositiveNumberOption(options.maxTokens, "--max-tokens");
+  const maxCostUsd = readPositiveNumberOption(options.maxCost, "--max-cost");
+  const maxWallClockMs = readPositiveNumberOption(options.maxTime, "--max-time");
+
+  if (maxTokens !== undefined) {
+    budget.maxTokens = maxTokens;
+  }
+  if (maxCostUsd !== undefined) {
+    budget.maxCostUsd = maxCostUsd;
+  }
+  if (maxWallClockMs !== undefined) {
+    budget.maxWallClockMs = maxWallClockMs;
+  }
+
+  return Object.keys(budget).length > 0 ? budget : undefined;
+}
+
+function readPositiveNumberOption(raw: string | undefined, flag: string): number | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${flag} must be a positive number`);
+  }
+
+  return value;
 }
 
 function assertGatewayProfile(profile: SecurityProfileName): void {

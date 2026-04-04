@@ -493,6 +493,42 @@ describe("GatewayServer", () => {
     });
   });
 
+  it("passes through goal budget fields", async () => {
+    const { server, submitGoalCalls } = createGatewayServerHarness({
+      workspaceRoot: "/workspace"
+    });
+    const response = await dispatch(
+      server,
+      "POST",
+      "/api/goals",
+      {
+        description: "整理 README",
+        budget: {
+          maxTokens: 50000,
+          maxCostUsd: 1.25,
+          maxWallClockMs: 60000
+        }
+      },
+      {
+        "x-api-key": "secret",
+        "content-type": "application/json"
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(submitGoalCalls[0]?.options).toEqual({
+      workspaceRoot: "/workspace",
+      workspaceId: "default",
+      configProfileId: "default",
+      createdBy: "operator",
+      budget: {
+        maxTokens: 50000,
+        maxCostUsd: 1.25,
+        maxWallClockMs: 60000
+      }
+    });
+  });
+
   it("returns registered artifact content and rejects unknown or unsafe paths", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-gateway-artifacts-"));
     tempDirs.push(workspaceRoot);

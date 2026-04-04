@@ -11,6 +11,7 @@ import {
   createWorkGoal,
   isCompletable,
   type Action,
+  type ActionResult,
   type Artifact,
   type BlockedReason,
   type RiskLevel,
@@ -23,6 +24,7 @@ import {
 } from "@octopus/work-contracts";
 
 import { renderPlan, renderRunbook, renderStatus, renderTodo } from "./artifacts/templates.js";
+import { WorkspaceLockError } from "./errors.js";
 import type { VerificationContext, VerificationPlugin } from "./verification/plugin.js";
 import { FileWorkspaceLock, type ReleaseReason, type WorkspaceLock } from "./workspace-lock.js";
 
@@ -192,6 +194,21 @@ export class WorkEngine {
     if (session.items.length === 0) {
       session.items.push(createDefaultWorkItem(session, goal));
     }
+    for (const item of session.items) {
+      for (const action of item.actions) {
+        if (action.result) {
+          continue;
+        }
+
+        action.result = {
+          success: false,
+          output: "",
+          error: "Action was interrupted by process termination",
+          outcome: "interrupted"
+        };
+        await this.runtime.ingestToolResult(session.id, action.id, action.result);
+      }
+    }
     this.emit(session, "snapshot.restored", "runtime", {
       sessionId: session.id,
       snapshotId: snapshot.snapshotId,
@@ -258,6 +275,9 @@ export class WorkEngine {
 
       return await this.runLoop(goal, session, options, trace.events);
     } catch (error) {
+      if (error instanceof WorkspaceLockError) {
+        return this.blockSession(session, goal, error.message, options.workspaceRoot, { reason: error.message });
+      }
       const message = error instanceof Error ? error.message : "Work engine failed.";
       transitionSession(session, "failed", message);
       await this.stateStore.saveSession(session);
@@ -281,6 +301,21 @@ export class WorkEngine {
 
     const decision = this.policy.evaluate(action, mapActionTypeToCategory(action.type));
     if (!decision.allowed) {
+      const deniedResult: ActionResult = {
+        success: false,
+        output: "",
+        error: `Security policy denied: ${decision.reason}`,
+        outcome: "denied"
+      };
+      item.actions.push({
+        ...action,
+        result: deniedResult
+      });
+      await this.runtime.ingestToolResult(session.id, action.id, deniedResult);
+      this.emit(session, "action.completed", "work-core", {
+        actionId: action.id,
+        success: false
+      });
       session.blockedReason = buildBlockedReason({
         actionId: action.id,
         reason: decision.reason,
@@ -319,12 +354,29 @@ export class WorkEngine {
       return true;
     }
 
-    const result = await this.substrate.execute(action, {
-      workspaceRoot: workspaceRoot ?? process.cwd(),
-      sessionId: session.id,
-      goalId: session.goalId,
-      eventBus: this.eventBus
-    });
+    const startedAt = Date.now();
+    let result: ActionResult;
+    try {
+      const raw = await this.substrate.execute(action, {
+        workspaceRoot: workspaceRoot ?? process.cwd(),
+        sessionId: session.id,
+        goalId: session.goalId,
+        eventBus: this.eventBus
+      });
+      result = {
+        ...raw,
+        outcome: raw.timedOut ? "timed_out" : "completed",
+        durationMs: Date.now() - startedAt
+      };
+    } catch (error) {
+      result = {
+        success: false,
+        output: "",
+        error: error instanceof Error ? error.message : "Unknown execution error",
+        outcome: "failed",
+        durationMs: Date.now() - startedAt
+      };
+    }
 
     item.actions.push({
       ...action,

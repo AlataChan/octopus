@@ -22,6 +22,14 @@ export type ArtifactType =
 
 export type ActionType = "read" | "patch" | "shell" | "search" | "model-call" | "mcp-call";
 
+export type ActionTerminalOutcome =
+  | "completed"
+  | "failed"
+  | "denied"
+  | "timed_out"
+  | "cancelled"
+  | "interrupted";
+
 export interface WorkGoal {
   id: string;
   description: string;
@@ -35,6 +43,9 @@ export interface ActionResult {
   success: boolean;
   output: string;
   error?: string;
+  outcome?: ActionTerminalOutcome;
+  durationMs?: number;
+  timedOut?: boolean;
 }
 
 export interface Action {
@@ -127,6 +138,7 @@ export type BlockedKind =
   | "approval-required"
   | "verification-failed"
   | "paused-by-operator"
+  | "budget-exceeded"
   | "system-error";
 
 export interface ApprovalFingerprint {
@@ -142,6 +154,20 @@ export interface BlockedReason {
   riskLevel?: RiskLevel;
   evidence?: string;
   verificationDetails?: EvidenceItem[];
+}
+
+export interface SessionUsage {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  estimatedCostUsd: number;
+  wallClockMs: number;
+  turnCount: number;
+}
+
+export interface BudgetLimits {
+  maxTokens?: number;
+  maxCostUsd?: number;
+  maxWallClockMs?: number;
 }
 
 export interface WorkSession {
@@ -160,6 +186,7 @@ export interface WorkSession {
   transitions: StateTransition[];
   createdAt: Date;
   updatedAt: Date;
+  usage?: SessionUsage;
   blockedReason?: BlockedReason;
 }
 

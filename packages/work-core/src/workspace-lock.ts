@@ -1,6 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { WorkspaceLockError } from "./errors.js";
+
 export type ReleaseReason = "completed" | "failed" | "cancelled" | "stale-cleared";
 
 export interface WorkspaceLock {
@@ -36,7 +38,7 @@ export class FileWorkspaceLock implements WorkspaceLock {
 
     const current = await this.readLock(workspaceRoot);
     if (current && !(current.sessionId === sessionId && current.pid === this.currentPid())) {
-      throw new Error(`Workspace is already locked by session ${current.sessionId}`);
+      throw new WorkspaceLockError(`Workspace is already locked by session ${current.sessionId}`, current.sessionId);
     }
 
     await writeFile(

@@ -36,7 +36,13 @@ describe("WorkEngine resume", () => {
     });
 
     const runtime = new FakeRuntime([{ kind: "completion", evidence: "restored" }]);
-    const engine = new WorkEngine(runtime, new FakeSubstrate({ success: true, output: "ok" }), store, eventBus, allowAllPolicy());
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      store,
+      eventBus,
+      allowAllPolicy()
+    );
 
     const session = await engine.executeGoal(resumedGoal, {
       resumeFrom: { sessionId: "session-1", snapshotId: "snapshot-1" }
@@ -45,7 +51,7 @@ describe("WorkEngine resume", () => {
     expect(session.id).toBe("session-1");
     expect(runtime.initSessionCalls).toBe(0);
     expect(runtime.hydratedSnapshots).toHaveLength(1);
-    expect(runtime.loadContextCalls).toBe(1);
+    expect(runtime.loadContextCalls).toBe(2);
     expect(events.some((event) => event.type === "snapshot.restored")).toBe(true);
   });
 });

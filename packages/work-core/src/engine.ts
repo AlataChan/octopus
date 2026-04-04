@@ -128,17 +128,15 @@ export class WorkEngine {
     }
 
     // Reconstruct goal from session data (use full description from first work item if available)
-    const fullDescription = snapshot.session.items[0]?.description
-      ?? snapshot.session.goalSummary
-      ?? "Resumed session";
+    const fullDescription = snapshot.session.items[0]?.description ?? snapshot.session.goalSummary ?? "Resumed session";
     const goal = createWorkGoal({
       id: snapshot.session.goalId,
-      description: fullDescription,
+      description: fullDescription
     });
 
     return this.executeGoal(goal, {
       ...options,
-      resumeFrom: { sessionId, snapshotId: snapshot.snapshotId },
+      resumeFrom: { sessionId, snapshotId: snapshot.snapshotId }
     });
   }
 
@@ -154,15 +152,7 @@ export class WorkEngine {
     }
 
     transitionSession(session, "active", "Goal accepted.");
-    await this.writeVisibleState(goal, session, options.workspaceRoot, "Execute next action");
-    await this.runtime.loadContext(session.id, {
-      workspaceSummary: options.workspaceRoot,
-      visibleFiles: options.workspaceRoot ? await listVisibleFiles(options.workspaceRoot) : [],
-      plan: `Goal: ${goal.description}`,
-      todo: "Execute next action",
-      status: `Session state: ${session.state}`,
-      mcpTools: this.mcpTools.length > 0 ? this.mcpTools : undefined
-    });
+    await this.refreshRuntimeContext(goal, session, options.workspaceRoot, "Execute next action");
     await this.stateStore.saveSession(session);
     this.emit(session, "session.started", "work-core", { goalDescription: goal.description });
     return session;
@@ -242,6 +232,7 @@ export class WorkEngine {
         });
       }
 
+      await this.refreshRuntimeContext(goal, session, options.workspaceRoot, "Execute next action");
       const response = await this.runtime.requestNextAction(session.id);
       this.accumulateUsage(turn, response.usage);
       turn.turnIndex += 1;
@@ -366,9 +357,9 @@ export class WorkEngine {
         approval: {
           actionId: action.id,
           actionType: action.type,
-          fingerprint,
+          fingerprint
         },
-        riskLevel: decision.riskLevel as RiskLevel,
+        riskLevel: decision.riskLevel as RiskLevel
       };
       transitionSession(session, "blocked", decision.reason);
       await this.stateStore.saveSession(session);
@@ -455,7 +446,8 @@ export class WorkEngine {
     const hasLegacyVerification = session.items.some((item) =>
       item.verifications.some((verification) => verification.passed)
     );
-    const verificationPassed = pluginResults.length > 0 ? pluginResults.every((result) => result.status !== "fail") : hasLegacyVerification;
+    const verificationPassed =
+      pluginResults.length > 0 ? pluginResults.every((result) => result.status !== "fail") : hasLegacyVerification;
     const noUnresolvedPartials = pluginResults.every((result) => result.status !== "partial");
 
     // Pure headless mode: no workspaceRoot, no plugins, no actions taken.
@@ -504,7 +496,12 @@ export class WorkEngine {
   ): Promise<WorkSession> {
     session.blockedReason = buildBlockedReason(payload);
     transitionSession(session, "blocked", reason);
-    await this.writeVisibleState(goal, session, workspaceRoot, payload.clarification ? "Clarification requested" : "Await user input");
+    await this.writeVisibleState(
+      goal,
+      session,
+      workspaceRoot,
+      payload.clarification ? "Clarification requested" : "Await user input"
+    );
     await this.stateStore.saveSession(session);
     this.emit(session, "session.blocked", "work-core", payload);
     await this.captureSnapshot(session);
@@ -555,11 +552,7 @@ export class WorkEngine {
       return;
     }
 
-    const currentItem = session.items.at(-1);
-    const todoItems =
-      currentItem && currentItem.state === "active"
-        ? session.items.map((item) => (item.id === currentItem.id ? { ...item, description: todoLine } : item))
-        : session.items;
+    const todoItems = this.buildVisibleTodoItems(session, todoLine);
 
     await Promise.all([
       writeFile(join(workspaceRoot, "PLAN.md"), renderPlan(session, goal), "utf8"),
@@ -570,6 +563,34 @@ export class WorkEngine {
     upsertArtifact(session, createArtifact("PLAN.md", "document", "Current plan"));
     upsertArtifact(session, createArtifact("TODO.md", "document", "Current todo"));
     upsertArtifact(session, createArtifact("STATUS.md", "document", "Current status"));
+  }
+
+  private async refreshRuntimeContext(
+    goal: WorkGoal,
+    session: WorkSession,
+    workspaceRoot: string | undefined,
+    todoLine: string
+  ): Promise<void> {
+    const todoItems = this.buildVisibleTodoItems(session, todoLine);
+    if (workspaceRoot) {
+      await this.writeVisibleState(goal, session, workspaceRoot, todoLine);
+    }
+
+    await this.runtime.loadContext(session.id, {
+      workspaceSummary: workspaceRoot,
+      visibleFiles: workspaceRoot ? await listVisibleFiles(workspaceRoot) : [],
+      plan: renderPlan(session, goal),
+      todo: renderTodo(todoItems),
+      status: renderStatus(session),
+      mcpTools: this.mcpTools.length > 0 ? this.mcpTools : undefined
+    });
+  }
+
+  private buildVisibleTodoItems(session: WorkSession, todoLine: string): WorkItem[] {
+    const currentItem = session.items.at(-1);
+    return currentItem && currentItem.state === "active"
+      ? session.items.map((item) => (item.id === currentItem.id ? { ...item, description: todoLine } : item))
+      : session.items;
   }
 
   private async writeRunbook(
@@ -811,16 +832,18 @@ interface ActionResultLike {
 
 function computeApprovalKey(action: Action): string {
   if (action.type === "shell") {
-    const executable = action.params.executable as string ?? "";
+    const executable = (action.params.executable as string) ?? "";
     const args = (action.params.args ?? []) as string[];
     return createShellApprovalKey(executable, args);
   }
   // Non-shell actions: use deterministic hash as approval key
   const payload = JSON.stringify(
-    Object.keys(action.params).sort().reduce<Record<string, unknown>>((sorted, key) => {
-      sorted[key] = action.params[key];
-      return sorted;
-    }, {})
+    Object.keys(action.params)
+      .sort()
+      .reduce<Record<string, unknown>>((sorted, key) => {
+        sorted[key] = action.params[key];
+        return sorted;
+      }, {})
   );
   return `${action.type}:${createHash("sha256").update(payload).digest("hex").slice(0, 16)}`;
 }
@@ -861,9 +884,7 @@ function buildBlockedReason(payload: EventPayloadByType["session.blocked"]): Blo
   };
 }
 
-function createProgressReporter(
-  emit: (stream: "stdout" | "stderr" | "info", chunk: string) => void
-): {
+function createProgressReporter(emit: (stream: "stdout" | "stderr" | "info", chunk: string) => void): {
   push(stream: "stdout" | "stderr" | "info", chunk: string): void;
   flushAll(): void;
   dispose(): void;

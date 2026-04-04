@@ -43,7 +43,7 @@ describe("buildTurnPrompt", () => {
     expect(prompt).toContain("Use completion only when the goal is truly done");
     expect(prompt).toContain("take at least one tool action before considering completion");
     expect(prompt).toContain("Use clarification when you need a specific answer from the operator");
-    expect(prompt).toContain('Use blocked only for unrecoverable failures');
+    expect(prompt).toContain("Use blocked only for unrecoverable failures");
   });
 
   it("documents the required params for each built-in action type", () => {
@@ -61,5 +61,49 @@ describe("buildTurnPrompt", () => {
     expect(prompt).toContain('patch => {"path":"relative/path","content":"full file content"}');
     expect(prompt).toContain('search => {"query":"literal text"}');
     expect(prompt).toContain('shell => {"executable":"command","args":["..."],"timeoutMs":30000?}');
+  });
+
+  it("includes recent action history and warns against repeating successful identical actions", () => {
+    const session = createWorkSession(createWorkGoal({ description: "Inspect repo" }));
+    session.items.push({
+      id: "item-1",
+      sessionId: session.id,
+      description: "Inspect repo",
+      state: "active",
+      observations: [],
+      actions: [
+        {
+          id: "action-read-plan",
+          type: "read",
+          params: { path: "PLAN.md", encoding: "utf8" },
+          createdAt: new Date("2026-04-04T09:00:00.000Z"),
+          result: {
+            success: true,
+            output: "Plan contents",
+            outcome: "completed"
+          }
+        }
+      ],
+      verifications: [],
+      createdAt: new Date("2026-04-04T09:00:00.000Z")
+    });
+
+    const prompt = buildTurnPrompt({
+      session,
+      context: {
+        workspaceSummary: "repo root"
+      },
+      results: [
+        {
+          success: true,
+          output: "Plan contents",
+          outcome: "completed"
+        }
+      ]
+    });
+
+    expect(prompt).toContain("Recent actions:");
+    expect(prompt).toContain("read path=PLAN.md encoding=utf8 -> completed");
+    expect(prompt).toContain("Do not repeat a successful action with identical params");
   });
 });

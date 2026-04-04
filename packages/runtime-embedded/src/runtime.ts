@@ -196,7 +196,7 @@ export class EmbeddedRuntime implements AgentRuntime {
 
   async ingestToolResult(sessionId: string, _actionId: string, result: ActionResult): Promise<void> {
     const existing = this.results.get(sessionId) ?? [];
-    existing.push(result);
+    existing.push(truncateStoredResult(result));
     this.results.set(sessionId, existing);
   }
 
@@ -246,4 +246,23 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+const RESULT_TRUNCATION_THRESHOLD = 4_096;
+const RESULT_TRUNCATION_HEAD = 2_048;
+const RESULT_TRUNCATION_TAIL = 1_024;
+
+function truncateStoredResult(result: ActionResult): ActionResult {
+  if (result.output.length <= RESULT_TRUNCATION_THRESHOLD) {
+    return result;
+  }
+
+  const truncatedCount = result.output.length - RESULT_TRUNCATION_HEAD - RESULT_TRUNCATION_TAIL;
+  return {
+    ...result,
+    output:
+      result.output.slice(0, RESULT_TRUNCATION_HEAD) +
+      `\n[...truncated ${truncatedCount} characters...]\n` +
+      result.output.slice(-RESULT_TRUNCATION_TAIL)
+  };
 }

@@ -168,4 +168,42 @@ describe("EmbeddedRuntime snapshots", () => {
     const response = await runtime.requestNextAction("session-legacy");
     expect(response.kind).toBe("completion");
   });
+
+  it("truncates oversized tool results before persisting them into runtime state", async () => {
+    const runtime = new EmbeddedRuntime(
+      {
+        provider: "openai-compatible",
+        model: "gpt-4o",
+        apiKey: "test-key",
+        maxTokens: 1_024,
+        temperature: 0,
+        allowModelApiCall: true
+      },
+      {
+        async completeTurn() {
+          return {
+            response: createCompletionResponse("done"),
+            telemetry: {
+              endpoint: "https://openrouter.ai/api/v1/chat/completions",
+              durationMs: 1,
+              success: true
+            }
+          };
+        }
+      },
+      new EventBus()
+    );
+
+    const session = await runtime.initSession(createWorkGoal({ description: "Truncate runtime result" }));
+    await runtime.ingestToolResult(session.id, "action-1", {
+      success: true,
+      output: "x".repeat(5000)
+    });
+
+    const snapshot = await runtime.snapshotSession(session.id);
+    const stored = snapshot.runtimeContext.pendingResults[0];
+
+    expect(stored?.output.length).toBeLessThan(5000);
+    expect(stored?.output).toContain("[...truncated");
+  });
 });

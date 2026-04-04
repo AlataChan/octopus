@@ -9,7 +9,14 @@ import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
 import { EventBus } from "@octopus/observability";
 import type { SecurityPolicy } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
-import { createWorkGoal, createWorkSession, type Action, type ActionResult, type WorkGoal, type WorkSession } from "@octopus/work-contracts";
+import {
+  createWorkGoal,
+  createWorkSession,
+  type Action,
+  type ActionResult,
+  type WorkGoal,
+  type WorkSession
+} from "@octopus/work-contracts";
 
 import { WorkEngine } from "../engine.js";
 import { RecordingWorkspaceLock } from "./helpers.js";
@@ -89,23 +96,17 @@ describe("WorkEngine", () => {
       }
     ]);
     const store = new MemoryStateStore();
-    const engine = new WorkEngine(
-      runtime,
-      new FakeSubstrate({ success: true, output: "ok" }),
-      store,
-      new EventBus(),
-      {
-        evaluate() {
-          return {
-            allowed: false,
-            requiresConfirmation: false,
-            riskLevel: "dangerous",
-            reason: "Denied by policy."
-          };
-        },
-        approveForSession() {}
-      }
-    );
+    const engine = new WorkEngine(runtime, new FakeSubstrate({ success: true, output: "ok" }), store, new EventBus(), {
+      evaluate() {
+        return {
+          allowed: false,
+          requiresConfirmation: false,
+          riskLevel: "dangerous",
+          reason: "Denied by policy."
+        };
+      },
+      approveForSession() {}
+    });
 
     const session = await engine.executeGoal(goal);
 
@@ -267,11 +268,7 @@ describe("WorkEngine", () => {
     const session = await engine.executeGoal(goal, { workspaceRoot });
 
     expect(session.items[0]?.state).toBe("done");
-    expect(
-      store.saveHistory
-        .slice(0, -1)
-        .every((snapshot) => snapshot.items[0]?.state !== "done")
-    ).toBe(true);
+    expect(store.saveHistory.slice(0, -1).every((snapshot) => snapshot.items[0]?.state !== "done")).toBe(true);
   });
 
   it("loads recursive visible files while excluding dotfiles", async () => {
@@ -450,12 +447,45 @@ describe("WorkEngine", () => {
     expect(store.sessions).toHaveLength(1);
     expect(store.sessions[0]?.id).toBe(session.id);
   });
+
+  it("refreshes runtime context before each turn with rendered workspace state", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "octopus-work-core-"));
+    tempDirs.push(workspaceRoot);
+
+    const goal = createWorkGoal({ description: "Inspect plan and continue" });
+    const runtime = new FakeRuntime([
+      {
+        kind: "action",
+        action: createAction("read", { path: "PLAN.md", encoding: "utf8" })
+      },
+      {
+        kind: "completion",
+        evidence: "done"
+      }
+    ]);
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "PLAN contents" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      allowAllPolicy()
+    );
+
+    await engine.executeGoal(goal, { workspaceRoot });
+
+    expect(runtime.contextPayloads.length).toBeGreaterThanOrEqual(2);
+    expect(runtime.contextPayloads[0]?.plan).toContain(goal.description);
+    expect(runtime.contextPayloads.at(-1)?.plan).toContain("# PLAN");
+    expect(runtime.contextPayloads.at(-1)?.todo).toContain("- ");
+    expect(runtime.contextPayloads.at(-1)?.status).toContain("Session");
+  });
 });
 
 class FakeRuntime implements AgentRuntime {
   readonly type = "embedded" as const;
   readonly ingestedResults: ActionResult[] = [];
   lastContextPayload?: ContextPayload;
+  readonly contextPayloads: ContextPayload[] = [];
 
   constructor(private readonly responses: RuntimeResponse[]) {}
 
@@ -485,6 +515,7 @@ class FakeRuntime implements AgentRuntime {
 
   async loadContext(_sessionId: string, context: ContextPayload): Promise<void> {
     this.lastContextPayload = context;
+    this.contextPayloads.push(structuredClone(context));
   }
 
   async requestNextAction(): Promise<RuntimeResponse> {

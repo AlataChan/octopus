@@ -440,7 +440,11 @@ export class GatewayServer {
       }
 
       const origin = this.readHeader(req, "origin");
-      if (origin && !validateOrigin(origin, this.config)) {
+      const requestProtocol = this.readHeader(req, "x-forwarded-proto")?.split(",")[0]?.trim()
+        || (this.config.tls ? "https" : "http");
+      const requestHost = this.readHeader(req, "x-forwarded-host")?.split(",")[0]?.trim()
+        || this.readHeader(req, "host")?.split(",")[0]?.trim();
+      if (origin && !validateOrigin(origin, this.config, { protocol: requestProtocol, host: requestHost })) {
         socket.destroy();
         return;
       }

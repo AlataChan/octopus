@@ -322,6 +322,44 @@ describe("gateway auth foundation", () => {
     ).toBe(true);
 
     expect(
+      validateOrigin(
+        "http://localhost:8080",
+        {
+          port: 4321,
+          host: "0.0.0.0",
+          workspaceRoot: "/workspace",
+          auth: {
+            apiKey: "secret",
+            defaultPermissions: []
+          }
+        },
+        {
+          protocol: "http",
+          host: "localhost:8080"
+        }
+      )
+    ).toBe(true);
+
+    expect(
+      validateOrigin(
+        "https://octopus.example.com",
+        {
+          port: 4321,
+          host: "0.0.0.0",
+          workspaceRoot: "/workspace",
+          auth: {
+            apiKey: "secret",
+            defaultPermissions: []
+          }
+        },
+        {
+          protocol: "https",
+          host: "octopus.example.com"
+        }
+      )
+    ).toBe(true);
+
+    expect(
       validateOrigin(undefined, {
         port: 4321,
         host: "octopus.example.com",

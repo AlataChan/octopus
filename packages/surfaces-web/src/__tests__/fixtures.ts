@@ -49,6 +49,7 @@ export function makeWorkSession(overrides: Partial<WorkSession> = {}): WorkSessi
     taskTitle: overrides.taskTitle ?? session.taskTitle,
     namedGoalId: overrides.namedGoalId,
     goalSummary: overrides.goalSummary ?? session.goalSummary,
+    usage: overrides.usage,
     blockedReason: overrides.blockedReason
   };
 }

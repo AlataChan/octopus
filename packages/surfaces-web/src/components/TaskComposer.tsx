@@ -19,6 +19,10 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
   const [description, setDescription] = useState("");
   const [selectedPack, setSelectedPack] = useState<WorkPack | null>(null);
   const [packParams, setPackParams] = useState<Record<string, string>>({});
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [maxTokens, setMaxTokens] = useState("");
+  const [maxCost, setMaxCost] = useState("");
+  const [maxTime, setMaxTime] = useState("");
   const packs = loadBuiltinPacks();
 
   const handleSubmit = async (event: Event) => {
@@ -49,16 +53,36 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
       return;
     }
 
+    const nextBudget: NonNullable<GoalSubmissionInput["budget"]> = {};
+    const parsedMaxTokens = Number.parseInt(maxTokens.trim(), 10);
+    const parsedMaxCost = Number.parseFloat(maxCost.trim());
+    const parsedMaxTimeSeconds = Number.parseInt(maxTime.trim(), 10);
+
+    if (maxTokens.trim().length > 0 && Number.isFinite(parsedMaxTokens) && parsedMaxTokens > 0) {
+      nextBudget.maxTokens = parsedMaxTokens;
+    }
+    if (maxCost.trim().length > 0 && Number.isFinite(parsedMaxCost) && parsedMaxCost > 0) {
+      nextBudget.maxCostUsd = parsedMaxCost;
+    }
+    if (maxTime.trim().length > 0 && Number.isFinite(parsedMaxTimeSeconds) && parsedMaxTimeSeconds > 0) {
+      nextBudget.maxWallClockMs = parsedMaxTimeSeconds * 1000;
+    }
+
     await onSubmit({
       description: finalDescription,
       ...(finalNamedGoalId.length > 0 ? { namedGoalId: finalNamedGoalId } : {}),
-      ...(finalTaskTitle.length > 0 ? { taskTitle: finalTaskTitle } : {})
+      ...(finalTaskTitle.length > 0 ? { taskTitle: finalTaskTitle } : {}),
+      ...(Object.keys(nextBudget).length > 0 ? { budget: nextBudget } : {})
     });
 
     setTaskTitle("");
     setDescription("");
     setSelectedPack(null);
     setPackParams({});
+    setAdvancedOpen(false);
+    setMaxTokens("");
+    setMaxCost("");
+    setMaxTime("");
   };
 
   return (
@@ -152,6 +176,58 @@ export function TaskComposer({ busy, dismissable = false, onDismiss, onSubmit }:
             <li>{t("taskComposer.exampleTwo")}</li>
           </ul>
           <p class="task-composer-warning">{t("taskComposer.warning")}</p>
+        </div>
+
+        <div class="task-composer-advanced">
+          <button
+            type="button"
+            class="button-ghost task-composer-advanced-toggle"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((current) => !current)}
+          >
+            {t("taskComposer.advanced")}
+          </button>
+
+          {advancedOpen ? (
+            <div class="task-composer-advanced-grid">
+              <label class="field">
+                <span>{t("taskComposer.maxTokens")}</span>
+                <input
+                  type="number"
+                  min="1"
+                  inputMode="numeric"
+                  placeholder="e.g. 100000"
+                  value={maxTokens}
+                  onInput={(event) => setMaxTokens((event.currentTarget as HTMLInputElement).value)}
+                />
+              </label>
+
+              <label class="field">
+                <span>{t("taskComposer.maxCost")}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="e.g. 0.50"
+                  value={maxCost}
+                  onInput={(event) => setMaxCost((event.currentTarget as HTMLInputElement).value)}
+                />
+              </label>
+
+              <label class="field">
+                <span>{t("taskComposer.maxTime")}</span>
+                <input
+                  type="number"
+                  min="1"
+                  inputMode="numeric"
+                  placeholder="e.g. 300"
+                  value={maxTime}
+                  onInput={(event) => setMaxTime((event.currentTarget as HTMLInputElement).value)}
+                />
+              </label>
+            </div>
+          ) : null}
         </div>
 
         <div class="task-composer-actions">

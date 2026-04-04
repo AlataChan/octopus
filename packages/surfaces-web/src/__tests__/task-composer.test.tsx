@@ -137,6 +137,40 @@ describe("TaskComposer pack selector", () => {
     });
   });
 
+  it("submits advanced budget fields only when provided", async () => {
+    const onSubmit = vi.fn(async () => undefined);
+    render(<TaskComposer busy={false} onSubmit={onSubmit} />);
+
+    fireEvent.input(screen.getByRole("textbox", { name: /任务说明/i }), {
+      target: { value: "读取 README.md 并整理成中文摘要" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /高级选项/i }));
+
+    fireEvent.input(screen.getByLabelText("最大Token数"), {
+      target: { value: "100000" }
+    });
+    fireEvent.input(screen.getByLabelText("最大费用"), {
+      target: { value: "0.5" }
+    });
+    fireEvent.input(screen.getByLabelText("最大时长（秒）"), {
+      target: { value: "300" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /提交任务/ }));
+
+    await vi.waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith({
+        description: "读取 README.md 并整理成中文摘要",
+        budget: {
+          maxTokens: 100000,
+          maxCostUsd: 0.5,
+          maxWallClockMs: 300000
+        }
+      });
+    });
+  });
+
   it("clears pack selection when switching back to custom", () => {
     render(<TaskComposer busy={false} onSubmit={vi.fn(async () => undefined)} />);
 

@@ -19,6 +19,7 @@ const {
   login,
   logout,
   rollbackSession,
+  emitStreamEvent,
   UnauthorizedError,
   authState
 } = vi.hoisted(() => ({
@@ -33,7 +34,10 @@ const {
   initialize: vi.fn(),
   submitGoal: vi.fn(),
   getArtifactContent: vi.fn(),
-  connectEventStream: vi.fn(() => ({ detach: vi.fn() })),
+  connectEventStream: vi.fn((sessionId: string, onEvent: (event: unknown) => void) => {
+    emitStreamEvent.current = onEvent;
+    return { detach: vi.fn() };
+  }),
   login: vi.fn(async (username: string) => {
     authState.authenticated = true;
     return {
@@ -47,6 +51,9 @@ const {
     authState.authenticated = false;
   }),
   rollbackSession: vi.fn(),
+  emitStreamEvent: {
+    current: undefined as undefined | ((event: unknown) => void)
+  },
   UnauthorizedError: class UnauthorizedError extends Error {
     constructor(message = "Authentication required.") {
       super(message);
@@ -129,6 +136,7 @@ describe("App dashboard shell", () => {
     getArtifactContent.mockReset();
     listSnapshots.mockReset();
     rollbackSession.mockReset();
+    emitStreamEvent.current = undefined;
     login.mockClear();
     logout.mockClear();
 
@@ -468,5 +476,48 @@ describe("App dashboard shell", () => {
     });
     expect(await screen.findByRole("dialog", { name: "PLAN.md" })).toBeInTheDocument();
     expect(await screen.findByText("# PLAN")).toBeInTheDocument();
+  }, 30_000);
+
+  it("renders live action progress in the event stream", async () => {
+    getSession.mockResolvedValue(makeWorkSession({
+      id: "session-1",
+      state: "active",
+      items: []
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "最近活动" });
+
+    emitStreamEvent.current?.({
+      id: "evt-req",
+      sessionId: "session-1",
+      goalId: "goal-1",
+      type: "action.requested",
+      sourceLayer: "work-core",
+      timestamp: new Date("2026-03-19T15:42:36.000Z"),
+      payload: {
+        actionId: "action-live",
+        actionType: "shell"
+      }
+    });
+    emitStreamEvent.current?.({
+      id: "evt-progress",
+      sessionId: "session-1",
+      goalId: "goal-1",
+      type: "action.progress",
+      sourceLayer: "substrate",
+      timestamp: new Date("2026-03-19T15:42:37.000Z"),
+      payload: {
+        actionId: "action-live",
+        actionType: "shell",
+        stream: "stdout",
+        chunk: "live output"
+      }
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /shell/i }));
+
+    expect(await screen.findByText("live output")).toBeInTheDocument();
   }, 30_000);
 });

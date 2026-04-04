@@ -1,6 +1,6 @@
 import type { WorkEvent } from "@octopus/observability";
 import type { SnapshotSummary } from "@octopus/state-store";
-import type { SessionSummary, WorkSession } from "@octopus/work-contracts";
+import type { BudgetLimits, SessionSummary, WorkSession } from "@octopus/work-contracts";
 
 import {
   SessionStorageAuthStore,
@@ -19,6 +19,7 @@ export interface GoalSubmissionInput {
   description: string;
   namedGoalId?: string;
   taskTitle?: string;
+  budget?: BudgetLimits;
 }
 
 export interface ArtifactContentResponse {

@@ -267,4 +267,107 @@ describe("SessionDetail", () => {
 
     expect(screen.getByText("未知原因")).toBeInTheDocument();
   });
+
+  it("renders session usage and action outcomes with duration details", () => {
+    render(
+      <SessionDetail
+        session={makeWorkSession({
+          state: "active",
+          usage: {
+            totalInputTokens: 1240,
+            totalOutputTokens: 9800,
+            estimatedCostUsd: 0.42,
+            wallClockMs: 125000,
+            turnCount: 4
+          },
+          items: [
+            {
+              id: "item-1",
+              sessionId: "session-1",
+              description: "Inspect the workspace",
+              state: "active",
+              observations: [],
+              actions: [
+                {
+                  id: "action-1",
+                  type: "shell",
+                  params: {
+                    executable: "rg",
+                    args: ["TODO", "packages"]
+                  },
+                  result: {
+                    success: true,
+                    output: "- one\n- two",
+                    outcome: "completed",
+                    durationMs: 1250
+                  },
+                  createdAt: new Date("2026-03-19T15:42:36.000Z")
+                },
+                {
+                  id: "action-2",
+                  type: "read",
+                  params: {
+                    path: "README.md"
+                  },
+                  result: {
+                    success: false,
+                    output: "",
+                    error: "Permission denied",
+                    outcome: "denied",
+                    durationMs: 45
+                  },
+                  createdAt: new Date("2026-03-19T15:43:36.000Z")
+                }
+              ],
+              verifications: [],
+              createdAt: new Date("2026-03-19T15:42:36.000Z")
+            }
+          ]
+        })}
+        events={[makeEvent()]}
+        progressByActionId={{}}
+        approval={null}
+        busy={false}
+        onControl={vi.fn(async () => undefined)}
+        onPreviewArtifact={vi.fn(async () => undefined)}
+        onResolveApproval={vi.fn(async () => undefined)}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "使用量" })).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.getByText("↑1.2K ↓9.8K")).toBeInTheDocument();
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
+    expect(screen.getByText("02:05")).toBeInTheDocument();
+    expect(screen.getByText("rg TODO packages")).toBeInTheDocument();
+    expect(screen.getByText("已完成")).toBeInTheDocument();
+    expect(screen.getByText("已拒绝")).toBeInTheDocument();
+    expect(screen.getByText("1.3s")).toBeInTheDocument();
+    expect(screen.getByText("45ms")).toBeInTheDocument();
+  });
+
+  it("localizes budget-exceeded blocked reasons", () => {
+    render(
+      <SessionDetail
+        session={makeWorkSession({
+          state: "blocked",
+          blockedReason: {
+            kind: "budget-exceeded",
+            evidence: "Token budget exceeded: 120000 / 100000"
+          },
+          transitions: []
+        })}
+        events={[makeEvent()]}
+        progressByActionId={{}}
+        approval={null}
+        busy={false}
+        onControl={vi.fn(async () => undefined)}
+        onPreviewArtifact={vi.fn(async () => undefined)}
+        onResolveApproval={vi.fn(async () => undefined)}
+      />
+    );
+
+    expect(screen.getByText(/预算已用尽/)).toBeInTheDocument();
+    expect(screen.getByText(/Token budget exceeded/)).toBeInTheDocument();
+  });
 });

@@ -8,12 +8,14 @@ import {
   GatewayClient,
   UnauthorizedError,
   type ApprovalRequest,
+  type GoalSubmissionInput,
   type StatusResponse
 } from "./api/client.js";
 import type { AuthSession } from "./api/auth.js";
 import { ArtifactPreviewModal } from "./components/ArtifactPreviewModal.js";
 import { ConnectionStatus } from "./components/ConnectionStatus.js";
 import { ErrorPanel } from "./components/ErrorPanel.js";
+import type { ActionProgressMap } from "./components/EventStream.js";
 import { LoginForm } from "./components/LoginForm.js";
 import { SessionDetail } from "./components/SessionDetail.js";
 import { SessionList } from "./components/SessionList.js";
@@ -44,6 +46,7 @@ function AppView() {
   const [selectedSession, setSelectedSession] = useState<WorkSession | null>(null);
   const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
   const [events, setEvents] = useState<WorkEvent[]>([]);
+  const [progressByActionId, setProgressByActionId] = useState<ActionProgressMap>({});
   const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showStatus, setShowStatus] = useState(false);
@@ -94,6 +97,7 @@ function AppView() {
     setSelectedSession(null);
     setSnapshots([]);
     setEvents([]);
+    setProgressByActionId({});
     setApproval(null);
     setStatus(null);
     setConnectionState("disconnected");
@@ -200,6 +204,7 @@ function AppView() {
       setSelectedSession(null);
       setSnapshots([]);
       setEvents([]);
+      setProgressByActionId({});
       setApproval(null);
       setConnectionState("disconnected");
       return;
@@ -207,6 +212,7 @@ function AppView() {
 
     let active = true;
     setEvents([]);
+    setProgressByActionId({});
     setApproval(null);
     setConnectionState("connecting");
 
@@ -222,11 +228,43 @@ function AppView() {
         if (!active) {
           return;
         }
+
+        if (event.type === "action.progress") {
+          const { actionId, stream, chunk } = event.payload;
+          setProgressByActionId((current) => {
+            const previous = current[actionId] ?? {
+              stdout: "",
+              stderr: "",
+              info: ""
+            };
+            return {
+              ...current,
+              [actionId]: {
+                ...previous,
+                [stream]: `${previous[stream]}${chunk}`.slice(-16_000)
+              }
+            };
+          });
+          return;
+        }
+
+        if (event.type === "action.completed") {
+          setProgressByActionId((current) => {
+            if (!current[event.payload.actionId]) {
+              return current;
+            }
+            const next = { ...current };
+            delete next[event.payload.actionId];
+            return next;
+          });
+        }
+
         setEvents((current) => [...current, event].slice(-200));
         if (
           event.type.startsWith("session.")
           || event.type.startsWith("workitem.")
           || event.type === "artifact.emitted"
+          || event.type === "action.completed"
         ) {
           void Promise.all([
             refreshSelectedSession(selectedSessionId),
@@ -278,7 +316,9 @@ function AppView() {
       setSessions([]);
       setSelectedSessionId(null);
       setSelectedSession(null);
+      setSnapshots([]);
       setEvents([]);
+      setProgressByActionId({});
       setApproval(null);
       setStatus(null);
       setPageError(null);
@@ -341,7 +381,7 @@ function AppView() {
     }
   };
 
-  const handleSubmitTask = async (input: { description: string; namedGoalId?: string; taskTitle?: string }) => {
+  const handleSubmitTask = async (input: GoalSubmissionInput) => {
     setBusy(true);
     try {
       const response = await client.submitGoal(input);
@@ -543,6 +583,7 @@ function AppView() {
             <SessionDetail
               session={selectedSession}
               events={events}
+              progressByActionId={progressByActionId}
               snapshots={snapshots}
               approval={approval}
               busy={busy}

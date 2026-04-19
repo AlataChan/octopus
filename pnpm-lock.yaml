@@ -137,6 +137,15 @@ importers:
         specifier: ^8.18.1
         version: 8.18.1
 
+  packages/memory:
+    dependencies:
+      '@octopus/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@octopus/work-contracts':
+        specifier: workspace:*
+        version: link:../work-contracts
+
   packages/observability:
     dependencies:
       '@octopus/work-contracts':

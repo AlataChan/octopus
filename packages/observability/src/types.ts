@@ -1,3 +1,5 @@
+import type { SessionState, SkillId } from "@octopus/work-contracts";
+
 export type SourceLayer =
   | "work-core"
   | "runtime"
@@ -84,6 +86,12 @@ export type ChatEventType =
   | "chat.notification.sent"
   | "chat.notification.failed";
 
+export type MemoryEventType =
+  | "memory.retrieved"
+  | "memory.injected"
+  | "memory.promoted"
+  | "memory.outcome";
+
 export type WorkEventType =
   | SessionEventType
   | WorkItemEventType
@@ -98,7 +106,8 @@ export type WorkEventType =
   | GatewayEventType
   | RemoteSessionEventType
   | McpEventType
-  | ChatEventType;
+  | ChatEventType
+  | MemoryEventType;
 
 export interface FileReadPayload {
   path: string;
@@ -392,6 +401,39 @@ export interface ChatNotificationFailedPayload {
   error: string;
 }
 
+export type MemorySourcePayload =
+  | { kind: "trace-event"; sessionId: string; eventId: string }
+  | { kind: "artifact"; sessionId: string; path: string; lines?: [number, number] }
+  | { kind: "freeform"; reason: string };
+
+export interface MemoryRetrievedPayload {
+  query: string;
+  skill: SkillId;
+  candidateIds: string[];
+  scores: Record<string, number>;
+}
+
+export interface MemoryInjectedPayload {
+  planId: string;
+  includedIds: string[];
+  excluded: Array<{ id: string; reason: string }>;
+  tokenCost: number;
+}
+
+export interface MemoryPromotedPayload {
+  recordId: string;
+  source: MemorySourcePayload;
+  skill: SkillId;
+  kind: "decision" | "fact" | "pattern" | "open_question" | "summary" | "note";
+  confirmedBy: "user" | "agent" | "rule";
+}
+
+export interface MemoryOutcomePayload {
+  planId: string;
+  sessionOutcome: Extract<SessionState, "completed" | "failed" | "cancelled" | "blocked">;
+  artifactsProduced: number;
+}
+
 export interface PolicyMeta {
   profile?: string;
   category?: string;
@@ -453,6 +495,10 @@ export interface EventPayloadByType {
   "chat.goal.received": ChatGoalReceivedPayload;
   "chat.notification.sent": ChatNotificationSentPayload;
   "chat.notification.failed": ChatNotificationFailedPayload;
+  "memory.retrieved": MemoryRetrievedPayload;
+  "memory.injected": MemoryInjectedPayload;
+  "memory.promoted": MemoryPromotedPayload;
+  "memory.outcome": MemoryOutcomePayload;
 }
 
 export type EventPayload = EventPayloadByType[WorkEventType];

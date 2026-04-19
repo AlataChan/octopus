@@ -479,4 +479,67 @@ describe("observability contract", () => {
 
     expect(events).toHaveLength(8);
   });
+
+  it("types memory event payloads without an escape hatch", () => {
+    const events: WorkEvent[] = [
+      {
+        id: "evt-memory-retrieved",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "memory.retrieved",
+        sourceLayer: "work-core",
+        payload: {
+          query: "fix flaky vitest",
+          skill: "dev",
+          candidateIds: ["mem-1"],
+          scores: { "mem-1": 4 }
+        }
+      },
+      {
+        id: "evt-memory-injected",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "memory.injected",
+        sourceLayer: "work-core",
+        payload: {
+          planId: "plan-1",
+          includedIds: ["mem-1"],
+          excluded: [{ id: "mem-2", reason: "budget" }],
+          tokenCost: 42
+        }
+      },
+      {
+        id: "evt-memory-promoted",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "memory.promoted",
+        sourceLayer: "surface",
+        payload: {
+          recordId: "mem-1",
+          skill: "dev",
+          kind: "decision",
+          confirmedBy: "user",
+          source: { kind: "freeform", reason: "manual seed" }
+        }
+      },
+      {
+        id: "evt-memory-outcome",
+        timestamp: new Date(),
+        sessionId: "session-1",
+        goalId: "goal-1",
+        type: "memory.outcome",
+        sourceLayer: "work-core",
+        payload: {
+          planId: "plan-1",
+          sessionOutcome: "completed",
+          artifactsProduced: 3
+        }
+      }
+    ];
+
+    expect(events).toHaveLength(4);
+  });
 });

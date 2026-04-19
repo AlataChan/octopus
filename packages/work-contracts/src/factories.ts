@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { WorkGoal, WorkSession } from "./types.js";
+import type { SkillId, WorkGoal, WorkSession } from "./types.js";
 
 export interface CreateWorkGoalInput {
   id?: string;
@@ -30,6 +30,7 @@ export interface CreateWorkSessionInput {
   configProfileId?: string;
   createdBy?: string;
   taskTitle?: string;
+  skillContext?: SkillId;
 }
 
 export function createWorkSession(
@@ -45,6 +46,8 @@ export function createWorkSession(
     configProfileId: input.configProfileId ?? "default",
     ...(input.createdBy ? { createdBy: input.createdBy } : {}),
     ...(input.taskTitle ? { taskTitle: input.taskTitle } : {}),
+    ...(input.skillContext ? { skillContext: input.skillContext } : {}),
+    injectionPlanIds: [],
     namedGoalId: goal.namedGoalId,
     state: "created",
     items: [],

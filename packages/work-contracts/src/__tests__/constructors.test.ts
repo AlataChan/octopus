@@ -40,12 +40,15 @@ describe("work-contract constructors", () => {
       workspaceId: "workspace-a",
       configProfileId: "profile-a",
       createdBy: "ops@example.com",
-      taskTitle: "README 摘要"
+      taskTitle: "README 摘要",
+      skillContext: "dev"
     });
 
     expect(session.workspaceId).toBe("workspace-a");
     expect(session.configProfileId).toBe("profile-a");
     expect(session.createdBy).toBe("ops@example.com");
     expect(session.taskTitle).toBe("README 摘要");
+    expect(session.skillContext).toBe("dev");
+    expect(session.injectionPlanIds).toEqual([]);
   });
 });

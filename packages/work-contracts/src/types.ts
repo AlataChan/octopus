@@ -22,6 +22,8 @@ export type ArtifactType =
 
 export type ActionType = "read" | "patch" | "shell" | "search" | "model-call" | "mcp-call";
 
+export type SkillId = "dev" | "ops" | "content" | "law" | "finance" | "molt";
+
 export type ActionTerminalOutcome =
   | "completed"
   | "failed"
@@ -179,6 +181,8 @@ export interface WorkSession {
   taskTitle?: string;
   namedGoalId?: string;
   goalSummary?: string;
+  skillContext?: SkillId;
+  injectionPlanIds?: string[];
   state: SessionState;
   items: WorkItem[];
   observations: Observation[];
@@ -199,6 +203,8 @@ export interface SessionSummary {
   taskTitle?: string;
   namedGoalId?: string;
   goalSummary?: string;
+  skillContext?: SkillId;
+  injectionPlanIds?: string[];
   state: SessionState;
   updatedAt: Date;
 }

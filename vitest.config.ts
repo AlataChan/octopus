@@ -12,6 +12,7 @@ export default defineConfig({
       "@octopus/state-store": resolve("packages/state-store/src/index.ts"),
       "@octopus/security": resolve("packages/security/src/index.ts"),
       "@octopus/work-core": resolve("packages/work-core/src/index.ts"),
+      "@octopus/memory": resolve("packages/memory/src/index.ts"),
       "@octopus/automation": resolve("packages/automation/src/index.ts"),
       "@octopus/runtime-embedded": resolve("packages/runtime-embedded/src/index.ts"),
       "@octopus/runtime-remote": resolve("packages/runtime-remote/src/index.ts"),
@@ -68,6 +69,12 @@ export default defineConfig({
         test: {
           name: "work-core",
           include: ["packages/work-core/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "memory",
+          include: ["packages/memory/src/**/*.test.ts"]
         }
       },
       {

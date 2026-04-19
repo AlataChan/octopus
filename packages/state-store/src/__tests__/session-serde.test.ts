@@ -37,9 +37,11 @@ describe("serializeWorkSession / hydrateWorkSession blockedReason", () => {
       workspaceId: "workspace-a",
       configProfileId: "profile-a",
       createdBy: "operator-1",
-      taskTitle: "README 摘要"
+      taskTitle: "README 摘要",
+      skillContext: "dev"
     });
     session.goalSummary = "读取 README 并整理为中文摘要";
+    session.injectionPlanIds = ["plan-1", "plan-2"];
 
     const stored = serializeWorkSession(session);
     const restored = hydrateWorkSession(stored);
@@ -53,6 +55,8 @@ describe("serializeWorkSession / hydrateWorkSession blockedReason", () => {
     expect(restored.createdBy).toBe("operator-1");
     expect(restored.taskTitle).toBe("README 摘要");
     expect(restored.goalSummary).toBe("读取 README 并整理为中文摘要");
+    expect(restored.skillContext).toBe("dev");
+    expect(restored.injectionPlanIds).toEqual(["plan-1", "plan-2"]);
   });
 
   it("hydrates legacy sessions without scope metadata using release defaults", () => {
@@ -64,6 +68,7 @@ describe("serializeWorkSession / hydrateWorkSession blockedReason", () => {
     delete stored.configProfileId;
     delete stored.createdBy;
     delete stored.taskTitle;
+    delete stored.injectionPlanIds;
 
     const restored = hydrateWorkSession(stored as unknown as ReturnType<typeof serializeWorkSession>);
 
@@ -71,5 +76,7 @@ describe("serializeWorkSession / hydrateWorkSession blockedReason", () => {
     expect(restored.configProfileId).toBe("default");
     expect(restored.createdBy).toBeUndefined();
     expect(restored.taskTitle).toBeUndefined();
+    expect(restored.skillContext).toBeUndefined();
+    expect(restored.injectionPlanIds).toBeUndefined();
   });
 });

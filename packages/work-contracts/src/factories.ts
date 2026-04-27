@@ -31,6 +31,7 @@ export interface CreateWorkSessionInput {
   createdBy?: string;
   taskTitle?: string;
   skillContext?: SkillId;
+  kbVaultPath?: string;
 }
 
 export function createWorkSession(
@@ -47,6 +48,7 @@ export function createWorkSession(
     ...(input.createdBy ? { createdBy: input.createdBy } : {}),
     ...(input.taskTitle ? { taskTitle: input.taskTitle } : {}),
     ...(input.skillContext ? { skillContext: input.skillContext } : {}),
+    ...(input.kbVaultPath ? { kbVaultPath: input.kbVaultPath } : {}),
     injectionPlanIds: [],
     namedGoalId: goal.namedGoalId,
     state: "created",

@@ -92,6 +92,12 @@ export type MemoryEventType =
   | "memory.promoted"
   | "memory.outcome";
 
+export type KbAdapterEventType =
+  | "kb.adapter.call.started"
+  | "kb.adapter.call.completed"
+  | "kb.adapter.call.failed"
+  | "kb.adapter.unavailable";
+
 export type WorkEventType =
   | SessionEventType
   | WorkItemEventType
@@ -107,7 +113,8 @@ export type WorkEventType =
   | RemoteSessionEventType
   | McpEventType
   | ChatEventType
-  | MemoryEventType;
+  | MemoryEventType
+  | KbAdapterEventType;
 
 export interface FileReadPayload {
   path: string;
@@ -434,6 +441,35 @@ export interface MemoryOutcomePayload {
   artifactsProduced: number;
 }
 
+export type KbAdapterCommand = "lookup" | "retrieve-bundle" | "neighbors" | "impacted-pages";
+
+export interface KbAdapterCallStartedPayload {
+  command: KbAdapterCommand;
+  vaultPathHash: string;
+  queryHash?: string;
+}
+
+export interface KbAdapterCallCompletedPayload {
+  command: KbAdapterCommand;
+  durationMs: number;
+  octopusKbVersion: string | "unknown";
+  schemaHash: string;
+  resultItemCount: number;
+}
+
+export type KbAdapterErrorKind = "not_installed" | "vault_invalid" | "timeout" | "schema_drift" | "command_failed";
+
+export interface KbAdapterCallFailedPayload {
+  command: KbAdapterCommand;
+  durationMs: number;
+  errorKind: KbAdapterErrorKind;
+  message: string;
+}
+
+export interface KbAdapterUnavailablePayload {
+  reason: string;
+}
+
 export interface PolicyMeta {
   profile?: string;
   category?: string;
@@ -499,6 +535,10 @@ export interface EventPayloadByType {
   "memory.injected": MemoryInjectedPayload;
   "memory.promoted": MemoryPromotedPayload;
   "memory.outcome": MemoryOutcomePayload;
+  "kb.adapter.call.started": KbAdapterCallStartedPayload;
+  "kb.adapter.call.completed": KbAdapterCallCompletedPayload;
+  "kb.adapter.call.failed": KbAdapterCallFailedPayload;
+  "kb.adapter.unavailable": KbAdapterUnavailablePayload;
 }
 
 export type EventPayload = EventPayloadByType[WorkEventType];

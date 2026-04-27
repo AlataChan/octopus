@@ -41,7 +41,8 @@ describe("work-contract constructors", () => {
       configProfileId: "profile-a",
       createdBy: "ops@example.com",
       taskTitle: "README 摘要",
-      skillContext: "dev"
+      skillContext: "dev",
+      kbVaultPath: "/vault"
     });
 
     expect(session.workspaceId).toBe("workspace-a");
@@ -49,6 +50,7 @@ describe("work-contract constructors", () => {
     expect(session.createdBy).toBe("ops@example.com");
     expect(session.taskTitle).toBe("README 摘要");
     expect(session.skillContext).toBe("dev");
+    expect(session.kbVaultPath).toBe("/vault");
     expect(session.injectionPlanIds).toEqual([]);
   });
 });

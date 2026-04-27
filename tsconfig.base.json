@@ -12,6 +12,8 @@
       "@octopus/state-store": ["packages/state-store/dist/index.d.ts"],
       "@octopus/security": ["packages/security/dist/index.d.ts"],
       "@octopus/work-core": ["packages/work-core/dist/index.d.ts"],
+      "@octopus/kb": ["packages/kb/dist/index.d.ts"],
+      "@octopus/skills-registry": ["packages/skills-registry/dist/index.d.ts"],
       "@octopus/automation": ["packages/automation/dist/index.d.ts"],
       "@octopus/runtime-embedded": ["packages/runtime-embedded/dist/index.d.ts"],
       "@octopus/runtime-remote": ["packages/runtime-remote/dist/index.d.ts"],

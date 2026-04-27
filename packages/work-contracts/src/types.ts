@@ -183,6 +183,7 @@ export interface WorkSession {
   goalSummary?: string;
   skillContext?: SkillId;
   injectionPlanIds?: string[];
+  kbVaultPath?: string;
   state: SessionState;
   items: WorkItem[];
   observations: Observation[];
@@ -205,6 +206,7 @@ export interface SessionSummary {
   goalSummary?: string;
   skillContext?: SkillId;
   injectionPlanIds?: string[];
+  kbVaultPath?: string;
   state: SessionState;
   updatedAt: Date;
 }

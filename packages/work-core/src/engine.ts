@@ -4,6 +4,12 @@ import { join } from "node:path";
 
 import type { McpToolDescription, ResumeInput, RuntimeResponse, TokenUsage } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
+import {
+  createSubprocessKbPort,
+  enrichPlanningContext,
+  type KbPort,
+  type PlanningEnrichmentResult
+} from "@octopus/kb";
 import type { EventBus, EventPayloadByType, WorkEvent, WorkEventType } from "@octopus/observability";
 import { createShellApprovalKey, type ActionCategory, type SecurityPolicy } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
@@ -38,25 +44,36 @@ export interface ExecuteGoalOptions {
   taskTitle?: string;
   maxIterations?: number;
   budget?: BudgetLimits;
+  kb?: KbOptions;
   resumeFrom?: { sessionId: string; snapshotId?: string };
   partialOverrideGranted?: boolean;
+}
+
+export interface KbOptions {
+  vaultPath?: string;
+  enabled?: boolean;
 }
 
 export interface WorkEngineOptions {
   verificationPlugins?: VerificationPlugin[];
   workspaceLock?: WorkspaceLock;
   mcpTools?: McpToolDescription[];
+  kbPort?: KbPort;
 }
 
 const COMPLETION_PREDICATE_FAILED_REASON = "Completion predicate failed.";
 const PAUSED_BY_OPERATOR_REASON = "Paused by operator.";
 const PROGRESS_FLUSH_INTERVAL_MS = 200;
 const PROGRESS_CHUNK_LIMIT = 4_096;
+const KB_CONTEXT_TOKEN_BUDGET = 1_500;
 
 export class WorkEngine {
   private readonly verificationPlugins: VerificationPlugin[];
   private readonly workspaceLock: WorkspaceLock;
   private readonly mcpTools: McpToolDescription[];
+  private readonly kbPort?: KbPort;
+  private readonly kbContextCache = new Map<string, string | null>();
+  private readonly kbUnavailableSessions = new Set<string>();
 
   constructor(
     private readonly runtime: import("@octopus/agent-runtime").AgentRuntime,
@@ -69,6 +86,7 @@ export class WorkEngine {
     this.verificationPlugins = options.verificationPlugins ?? [];
     this.workspaceLock = options.workspaceLock ?? new FileWorkspaceLock();
     this.mcpTools = options.mcpTools ?? [];
+    this.kbPort = options.kbPort;
   }
 
   async executeGoal(goal: WorkGoal, options: ExecuteGoalOptions = {}): Promise<WorkSession> {
@@ -147,12 +165,13 @@ export class WorkEngine {
     session.createdBy = options.createdBy;
     session.taskTitle = options.taskTitle;
     session.goalSummary = summarizeGoalDescription(goal.description);
+    session.kbVaultPath = resolveKbVaultPath(options);
     if (session.items.length === 0) {
       session.items.push(createDefaultWorkItem(session, goal));
     }
 
     transitionSession(session, "active", "Goal accepted.");
-    await this.refreshRuntimeContext(goal, session, options.workspaceRoot, "Execute next action");
+    await this.refreshRuntimeContext(goal, session, options, "Execute next action");
     await this.stateStore.saveSession(session);
     this.emit(session, "session.started", "work-core", { goalDescription: goal.description });
     return session;
@@ -232,7 +251,7 @@ export class WorkEngine {
         });
       }
 
-      await this.refreshRuntimeContext(goal, session, options.workspaceRoot, "Execute next action");
+      await this.refreshRuntimeContext(goal, session, options, "Execute next action");
       const response = await this.runtime.requestNextAction(session.id);
       this.accumulateUsage(turn, response.usage);
       turn.turnIndex += 1;
@@ -568,22 +587,74 @@ export class WorkEngine {
   private async refreshRuntimeContext(
     goal: WorkGoal,
     session: WorkSession,
-    workspaceRoot: string | undefined,
+    options: Pick<ExecuteGoalOptions, "workspaceRoot" | "kb">,
     todoLine: string
   ): Promise<void> {
+    const workspaceRoot = options.workspaceRoot;
     const todoItems = this.buildVisibleTodoItems(session, todoLine);
     if (workspaceRoot) {
       await this.writeVisibleState(goal, session, workspaceRoot, todoLine);
     }
+    const kbContext =
+      options.kb?.enabled === true && session.kbVaultPath
+        ? await this.loadKbContext(goal, session, options)
+        : undefined;
 
     await this.runtime.loadContext(session.id, {
-      workspaceSummary: workspaceRoot,
+      workspaceSummary: renderWorkspaceSummary(workspaceRoot, kbContext),
       visibleFiles: workspaceRoot ? await listVisibleFiles(workspaceRoot) : [],
       plan: renderPlan(session, goal),
       todo: renderTodo(todoItems),
       status: renderStatus(session),
       mcpTools: this.mcpTools.length > 0 ? this.mcpTools : undefined
     });
+  }
+
+  private async loadKbContext(
+    goal: WorkGoal,
+    session: WorkSession,
+    options: ExecuteGoalOptions
+  ): Promise<string | undefined> {
+    if (options.kb?.enabled !== true || !session.kbVaultPath) {
+      return undefined;
+    }
+    const cached = this.kbContextCache.get(session.id);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
+
+    const port = this.kbPort ?? createSubprocessKbPort({
+      eventBus: this.eventBus,
+      traceContext: { sessionId: session.id, goalId: session.goalId }
+    });
+    const availability = await port.available();
+    if (!availability.ok) {
+      this.emitKbUnavailable(session, availability.reason);
+      this.kbContextCache.set(session.id, null);
+      return undefined;
+    }
+
+    try {
+      const result = await enrichPlanningContext(port, {
+        query: goal.description,
+        vaultPath: session.kbVaultPath,
+        tokenBudget: KB_CONTEXT_TOKEN_BUDGET
+      });
+      const rendered = renderKbContext(result);
+      this.kbContextCache.set(session.id, rendered);
+      return rendered;
+    } catch {
+      this.kbContextCache.set(session.id, null);
+      return undefined;
+    }
+  }
+
+  private emitKbUnavailable(session: WorkSession, reason: string): void {
+    if (this.kbUnavailableSessions.has(session.id)) {
+      return;
+    }
+    this.kbUnavailableSessions.add(session.id);
+    this.emit(session, "kb.adapter.unavailable", "work-core", { reason });
   }
 
   private buildVisibleTodoItems(session: WorkSession, todoLine: string): WorkItem[] {
@@ -789,6 +860,47 @@ function mapSessionStateToReleaseReason(state: SessionState): Exclude<ReleaseRea
     default:
       return "cancelled";
   }
+}
+
+function resolveKbVaultPath(options: ExecuteGoalOptions): string | undefined {
+  return nonEmptyString(options.kb?.vaultPath) ?? nonEmptyString(process.env.OCTOPUS_KB_VAULT);
+}
+
+function renderWorkspaceSummary(workspaceRoot: string | undefined, kbContext: string | undefined): string | undefined {
+  if (workspaceRoot && kbContext) {
+    return `Workspace root: ${workspaceRoot}\n\n${kbContext}`;
+  }
+  return kbContext ?? workspaceRoot;
+}
+
+function renderKbContext(result: PlanningEnrichmentResult): string {
+  const lines = ["KB Context"];
+  if (result.canonical) {
+    lines.push(`Canonical: ${result.canonical.title} (${result.canonical.path})`);
+    if (result.canonical.sourceOfTruth) {
+      lines.push(`Source of truth: ${result.canonical.sourceOfTruth}`);
+    }
+  } else {
+    lines.push("Canonical: none");
+  }
+  if (result.aliases.length > 0) {
+    lines.push(`Aliases: ${result.aliases.map((alias) => alias.text).join(", ")}`);
+  }
+  if (result.evidence && result.evidence.items.length > 0) {
+    lines.push("Evidence:");
+    for (const item of result.evidence.items.slice(0, 8)) {
+      lines.push(`- ${item.bucket}: ${item.title} (${item.path}) [${item.reason}]`);
+    }
+  }
+  if (result.neighbors?.canonicalIdentity) {
+    lines.push(`Canonical identity: ${result.neighbors.canonicalIdentity}`);
+  }
+  return lines.join("\n");
+}
+
+function nonEmptyString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 async function listVisibleFiles(workspaceRoot: string): Promise<string[]> {

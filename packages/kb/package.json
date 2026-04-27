@@ -1,5 +1,5 @@
 {
-  "name": "@octopus/work-core",
+  "name": "@octopus/kb",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -13,15 +13,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "type-check": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project work-core"
+    "test": "pnpm --dir ../../ exec vitest run --config vitest.config.ts --project kb"
   },
   "dependencies": {
-    "@octopus/agent-runtime": "workspace:*",
-    "@octopus/exec-substrate": "workspace:*",
-    "@octopus/kb": "workspace:*",
     "@octopus/observability": "workspace:*",
-    "@octopus/security": "workspace:*",
-    "@octopus/state-store": "workspace:*",
-    "@octopus/work-contracts": "workspace:*"
+    "zod": "^3.24.2"
   }
 }

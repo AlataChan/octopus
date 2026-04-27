@@ -1,8 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { describe, expect, it } from "vitest";
 
-import type { WorkSession } from "@octopus/work-contracts";
-
 import { EventStream } from "../components/EventStream.js";
 import { I18nProvider } from "../i18n/I18nProvider.js";
 import { makeEvent, makeWorkSession } from "./fixtures.js";

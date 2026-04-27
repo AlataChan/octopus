@@ -12,6 +12,8 @@ export default defineConfig({
       "@octopus/state-store": resolve("packages/state-store/src/index.ts"),
       "@octopus/security": resolve("packages/security/src/index.ts"),
       "@octopus/work-core": resolve("packages/work-core/src/index.ts"),
+      "@octopus/kb": resolve("packages/kb/src/index.ts"),
+      "@octopus/skills-registry": resolve("packages/skills-registry/src/index.ts"),
       "@octopus/memory": resolve("packages/memory/src/index.ts"),
       "@octopus/automation": resolve("packages/automation/src/index.ts"),
       "@octopus/runtime-embedded": resolve("packages/runtime-embedded/src/index.ts"),
@@ -75,6 +77,18 @@ export default defineConfig({
         test: {
           name: "memory",
           include: ["packages/memory/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "kb",
+          include: ["packages/kb/src/**/*.test.ts"]
+        }
+      },
+      {
+        test: {
+          name: "skills-registry",
+          include: ["packages/skills-registry/src/**/*.test.ts"]
         }
       },
       {

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentRuntime, ContextPayload, RuntimeResponse, SessionSnapshot } from "@octopus/agent-runtime";
 import type { ExecutionSubstratePort } from "@octopus/exec-substrate";
+import type { KbPort, KbRawLookupResult, KbRawNeighborsResult, KbRawRetrieveBundleResult } from "@octopus/kb";
 import { EventBus } from "@octopus/observability";
 import type { SecurityPolicy } from "@octopus/security";
 import type { StateStore } from "@octopus/state-store";
@@ -479,6 +480,111 @@ describe("WorkEngine", () => {
     expect(runtime.contextPayloads.at(-1)?.todo).toContain("- ");
     expect(runtime.contextPayloads.at(-1)?.status).toContain("Session");
   });
+
+  it("resolves a session kbVaultPath from explicit options and injects KB context when enabled", async () => {
+    const goal = createWorkGoal({ description: "Use KB context for RAG Ops" });
+    const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+    const kbPort = new FakeKbPort();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      allowAllPolicy(),
+      { kbPort }
+    );
+
+    const session = await engine.executeGoal(goal, {
+      kb: { enabled: true, vaultPath: "/vault" },
+    });
+
+    expect(session.kbVaultPath).toBe("/vault");
+    expect(kbPort.lookupCalls).toEqual([{ term: goal.description, vaultPath: "/vault" }]);
+    expect(kbPort.retrieveBundleCalls).toEqual([{ query: goal.description, vaultPath: "/vault", maxTokens: 1500 }]);
+    expect(runtime.contextPayloads[0]?.workspaceSummary).toContain("KB Context");
+    expect(runtime.contextPayloads[0]?.workspaceSummary).toContain("RAG Operations");
+    expect(runtime.contextPayloads[0]?.workspaceSummary).toContain("wiki/concepts/RAG Operations.md");
+  });
+
+  it("keeps KB disabled by default even when a vault path is configured", async () => {
+    const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+    const kbPort = new FakeKbPort();
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      new EventBus(),
+      allowAllPolicy(),
+      { kbPort }
+    );
+
+    await engine.executeGoal(createWorkGoal({ description: "No KB by default" }), {
+      kb: { vaultPath: "/vault" },
+    });
+
+    expect(kbPort.lookupCalls).toEqual([]);
+    expect(runtime.lastContextPayload?.workspaceSummary ?? "").not.toContain("KB Context");
+  });
+
+  it("resolves kbVaultPath from OCTOPUS_KB_VAULT when no explicit path is supplied", async () => {
+    const previous = process.env.OCTOPUS_KB_VAULT;
+    process.env.OCTOPUS_KB_VAULT = "/env-vault";
+    try {
+      const goal = createWorkGoal({ description: "Use env KB" });
+      const runtime = new FakeRuntime([{ kind: "completion", evidence: "done" }]);
+      const kbPort = new FakeKbPort();
+      const engine = new WorkEngine(
+        runtime,
+        new FakeSubstrate({ success: true, output: "ok" }),
+        new MemoryStateStore(),
+        new EventBus(),
+        allowAllPolicy(),
+        { kbPort }
+      );
+
+      const session = await engine.executeGoal(goal, {
+        kb: { enabled: true },
+      });
+
+      expect(session.kbVaultPath).toBe("/env-vault");
+      expect(kbPort.lookupCalls).toEqual([{ term: goal.description, vaultPath: "/env-vault" }]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OCTOPUS_KB_VAULT;
+      } else {
+        process.env.OCTOPUS_KB_VAULT = previous;
+      }
+    }
+  });
+
+  it("skips KB enrichment and emits one unavailable event when the adapter is unavailable", async () => {
+    const events: string[] = [];
+    const eventBus = new EventBus();
+    eventBus.on("kb.adapter.unavailable", (event) => events.push(event.payload.reason));
+    const runtime = new FakeRuntime([
+      {
+        kind: "action",
+        action: createAction("read", { path: "README.md", encoding: "utf8" }),
+      },
+      { kind: "completion", evidence: "done" },
+    ]);
+    const kbPort = new FakeKbPort({ available: false });
+    const engine = new WorkEngine(
+      runtime,
+      new FakeSubstrate({ success: true, output: "ok" }),
+      new MemoryStateStore(),
+      eventBus,
+      allowAllPolicy(),
+      { kbPort }
+    );
+
+    await engine.executeGoal(createWorkGoal({ description: "Unavailable KB" }), {
+      kb: { enabled: true, vaultPath: "/vault" },
+    });
+
+    expect(kbPort.lookupCalls).toEqual([]);
+    expect(events).toEqual(["octopus-kb unavailable in test"]);
+  });
 });
 
 class FakeRuntime implements AgentRuntime {
@@ -577,6 +683,70 @@ class FakeSubstrate implements ExecutionSubstratePort {
 
   async execute(): Promise<ActionResult> {
     return this.result;
+  }
+}
+
+class FakeKbPort implements KbPort {
+  readonly lookupCalls: Array<{ term: string; vaultPath: string }> = [];
+  readonly retrieveBundleCalls: Array<{ query: string; vaultPath: string; maxTokens?: number }> = [];
+
+  constructor(private readonly options: { available?: boolean } = {}) {}
+
+  async available() {
+    return this.options.available === false
+      ? { ok: false as const, reason: "octopus-kb unavailable in test" }
+      : { ok: true as const, version: "0.6.0" };
+  }
+
+  async lookup(input: { term: string; vaultPath: string }): Promise<KbRawLookupResult> {
+    this.lookupCalls.push(input);
+    return {
+      term: input.term,
+      canonical: {
+        path: "wiki/concepts/RAG Operations.md",
+        title: "RAG Operations",
+      },
+      aliases: [{ text: "RAG Ops", resolves_to: "wiki/concepts/RAG Operations.md" }],
+      ambiguous: false,
+      collisions: [],
+      next: [],
+    };
+  }
+
+  async retrieveBundle(input: { query: string; vaultPath: string; maxTokens?: number }): Promise<KbRawRetrieveBundleResult> {
+    this.retrieveBundleCalls.push(input);
+    return {
+      query: input.query,
+      bundle: {
+        schema: [],
+        index: [],
+        concepts: [{ path: "wiki/concepts/RAG Operations.md", title: "RAG Operations", reason: "title_match" }],
+        entities: [],
+        raw_sources: [],
+      },
+      warnings: [],
+      token_estimate: 42,
+      next: [],
+    };
+  }
+
+  async neighbors(): Promise<KbRawNeighborsResult> {
+    return {
+      page: "wiki/concepts/RAG Operations.md",
+      inbound: [],
+      outbound: [],
+      aliases: ["RAG Ops"],
+      canonical_identity: "RAG Operations",
+      next: [],
+    };
+  }
+
+  async impactedPages() {
+    return {
+      page: "wiki/concepts/RAG Operations.md",
+      impacted: [],
+      next: [],
+    };
   }
 }
 

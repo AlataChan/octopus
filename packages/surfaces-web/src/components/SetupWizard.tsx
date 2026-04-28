@@ -253,19 +253,20 @@ export function SetupWizard({
       ) : null}
 
       {step === "runtime" ? (
-        <form class="setup-form" onSubmit={handleValidateRuntime}>
+        <form class="setup-form" onSubmit={handleValidateRuntime} autoComplete="off">
           <h2>{t("setup.runtime.heading")}</h2>
           <p class="setup-note">{t("setup.runtime.description")}</p>
           <div class="setup-grid">
-            <label class="field">
+            <div class="field">
               <span>{t("setup.runtime.provider")}</span>
-              <input type="text" value="openai-compatible" readOnly />
-            </label>
+              <p class="setup-note" style={{ margin: "0.25rem 0 0" }}>OpenAI-Compatible API</p>
+            </div>
             <label class="field">
               <span>{t("setup.runtime.model")}</span>
               <input
                 type="text"
                 value={runtime.model}
+                autoComplete="one-time-code"
                 onInput={(event) => setRuntime((current) => ({
                   ...current,
                   model: (event.currentTarget as HTMLInputElement).value
@@ -278,7 +279,7 @@ export function SetupWizard({
               <input
                 type="password"
                 value={runtime.apiKey}
-                autoComplete="off"
+                autoComplete="one-time-code"
                 onInput={(event) => setRuntime((current) => ({
                   ...current,
                   apiKey: (event.currentTarget as HTMLInputElement).value
@@ -289,8 +290,9 @@ export function SetupWizard({
             <label class="field">
               <span>{t("setup.runtime.baseUrl")}</span>
               <input
-                type="url"
+                type="text"
                 value={runtime.baseUrl}
+                autoComplete="one-time-code"
                 onInput={(event) => setRuntime((current) => ({
                   ...current,
                   baseUrl: (event.currentTarget as HTMLInputElement).value

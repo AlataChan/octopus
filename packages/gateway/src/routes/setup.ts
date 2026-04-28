@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-import { HttpModelClient } from "@octopus/runtime-embedded";
-import { createWorkGoal, createWorkSession } from "@octopus/work-contracts";
-
 import { createPasswordHash } from "../auth.js";
 import { isInitialized, isWorkspaceWritable, writeSystemConfig } from "../system-config.js";
 import type { SystemConfig } from "../types.js";
@@ -53,28 +50,45 @@ export async function handleValidateRuntime(
   await assertNotInitialized(deps);
   const runtime = readRuntimePayload(body);
   const startedAt = Date.now();
+  const baseUrl = runtime.baseUrl ?? "https://openrouter.ai/api/v1";
+  const endpoint = baseUrl.endsWith("/chat/completions")
+    ? baseUrl
+    : `${baseUrl.replace(/\/$/, "")}/chat/completions`;
 
   try {
-    const client = new HttpModelClient(createTimedFetch(15_000));
-    const session = createWorkSession(
-      createWorkGoal({
-        description: "Validate runtime connectivity"
-      })
-    );
-
-    await client.completeTurn({
-      session,
-      results: [],
-      config: {
-        provider: "openai-compatible",
+    const timedFetch = createTimedFetch(15_000);
+    const response = await timedFetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${runtime.apiKey}`
+      },
+      body: JSON.stringify({
         model: runtime.model,
-        apiKey: runtime.apiKey,
-        ...(runtime.baseUrl ? { baseUrl: runtime.baseUrl } : {}),
-        maxTokens: 64,
+        max_tokens: 8,
         temperature: 0,
-        allowModelApiCall: true
-      }
+        messages: [{ role: "user", content: "respond with OK" }]
+      })
     });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = "Unknown provider error.";
+      try {
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        const errObj = parsed.error as Record<string, unknown> | undefined;
+        detail = String(errObj?.message ?? parsed.message ?? parsed.detail ?? detail);
+      } catch {
+        if (text.trim()) {
+          detail = text.slice(0, 200);
+        }
+      }
+      return {
+        valid: false,
+        latencyMs: Date.now() - startedAt,
+        error: `API returned ${response.status}: ${detail}`
+      };
+    }
 
     return {
       valid: true,
